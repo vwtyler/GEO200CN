@@ -1,0 +1,441 @@
+---
+title: "Week 3 HW"
+author: "Tyler Jackson"
+date: "4/20/2019"
+output: 
+  html_document:
+    theme: journal
+    toc: true
+    toc_float: true
+    toc_depth: 2
+---
+
+Week 3 
+
+#Part 1.  Introduction to spatial data in *R*
+
+First work through http://www.rspatial.org/spatial/
+There is quite a lot of stuff, so go through it quickly. It is a reference. 
+
+Upload to Canvas this Rmarkdown file (and a pdf compilation) after adding R code and some text such to answer the questions below.
+
+Consider answering by writing sentences that use inline R commands like this 5 + 5 = `r 5+5`. 
+
+For this exercise __only use the sp and raster packages__ (and indirectly, packages such as rgdal that raster may use in the background). 
+```{r}
+#load libraries
+library(sp)
+library(raster)
+library(rgdal)
+
+#can i use ggplot?
+library(ggplot2)
+library(ggthemes)
+
+#data path
+mypath <- "/Users/tyler/Dropbox/_200CN/labs/week3/data/"
+```
+
+*Questions*
+
+## 1) Read in the data
+
+__read the shapefile "galap.shp" (in galap.zip) into R to create a SpatialPolygonsDataFrame.__
+
+```{r}
+#unzip the zip file into the data path
+unzip(file.path(mypath, "galap.zip") , exdir = file.path(mypath))
+
+#read shapefile with readOGR
+galap <- readOGR(file.path(mypath, "galap.shp"))
+
+```
+
+## 2) Class
+
+__show the class of the object in R__
+
+```{r}
+#class
+class(galap)
+```
+
+The class of the object `galap` is `r class(galap)`. 
+
+## 3) Polygons
+
+__how many polygons are there in this object?__
+
+```{r}
+#how many rows?
+nrow(galap)
+```
+
+There are `r nrow(galap)` polygons in the object `galap`.
+
+## 4) Variables
+
+__how many variables are there in this object?__
+
+```{r}
+#how many columns
+ncol(galap)
+```
+
+There are `r ncol(galap)` variables in the object `galap`. 
+
+## 5) Island Plots
+
+__make a plot of the islands (their outlines)__
+
+Plot
+```{r}
+#use plot
+plot(galap)
+title(main = "Galapagos Islands", sub = "by Tyler Jackson")
+```
+
+## 6) Scatter Plots
+
+__make a scatter plot of the number of species as a function of the size of the island__
+
+Check Data
+```{r}
+#get variable names to plot by looking at the data
+head(galap)
+
+#we'll use species and areaAdj, let's make sure we can plot them
+apply(as.data.frame(galap[,c(6,12)]), 2, typeof)
+```
+
+Plot
+```{r}
+#for some reason ggplot won't plot the SP dataframe so I passed it as a df
+ggplot(as.data.frame(galap)) +
+  geom_point(aes(area, species)) +
+  labs(title = "Number of Species by Area", subtitle = "Galapagos Islands", caption = "by Tyler Jackson") +
+  theme_economist()
+```
+
+```{r}
+#plot with the uglier plot
+plot(species ~ area, galap)
+title(main = "Number of Species by Area in Galapagos Islands", sub = "by Tyler Jackson")
+```
+
+## 7) Map variable?
+
+__what quantity might you use to make a choropleth to represent the number of species on each island?__
+
+>I would use at the very least a rate variable to represent the number of species on each island. So something like `species/area`. Using counts per island would not account for the different island sizes.
+
+## 8) Chloropleth
+
+__create that quantity as a new variable in the SpatialPolyonsDataFrame and plot it with "spplot"__
+
+Calculate Rate
+```{r}
+#create species / area variable
+galap$spRate <- (galap$species/galap$area)
+```
+
+
+Plot
+```{r}
+#spplot does cholorpleths, second argument is the variable to plot
+spplot(galap, "spRate", main = "Number of Species per m, Galapagos")
+```
+
+## 9) Saving the big island
+
+__select the largest island and save it to a new shapefile__
+
+```{r}
+#which polygon is the biggest
+which.max(galap$area) #row 2
+
+#subset the island
+big.island <- galap[2,]
+```
+
+```{r}
+#save it using writeOGR
+writeOGR(big.island, dsn = file.path(mypath), 
+         layer = "big.island", driver = "ESRI Shapefile", 
+         overwrite_layer = T)
+
+```
+
+## 10) Get elevation data
+
+__download elevation data for Ecuador (use the "getData" in the raster package)__
+
+Download Data
+```{r}
+#get data "alt = altitude"
+ecuador <- getData('alt', country='ECU', download = TRUE)
+```
+
+Plot
+```{r}
+#check it out
+spplot(ecuador, main = "Ecuador Elevation")
+```
+
+
+## 11) Cropping
+
+__use the crop function in the raster package and then map the elevation data (add the island outlines)__
+
+Projections
+```{r}
+#check CRS for each object
+crs(galap)
+crs(ecuador)
+
+#reproject galap into the crs of ecuador
+g.lonlat <- spTransform(galap, CRSobj = crs(ecuador))
+```
+
+Cropping
+```{r}
+#crop by the extent
+g.crop <- crop(ecuador, extent(g.lonlat))
+```
+
+Plot
+```{r}
+#plot with outlines
+spplot(g.crop, sp.layout = g.lonlat, main = "Galapagos Islands Elevation")
+
+```
+
+## 12) Contour maps
+
+__create a contour map of elevation in Ecuador.__
+
+Get boundary data
+```{r}
+#need to get poly lines for ecuador
+ecu.poly <- getData('GADM', country='ECU', download = TRUE, level = 0)
+```
+
+Plot
+```{r}
+#raster has a "contour" function
+contour(ecuador, main = "Ecuador Elevation Contour Lines")
+plot(ecu.poly, add = T)
+```
+
+
+#Part 2. Pattern and Process
+
+Please read https://rspatial.org/rosu/Chapter4.html
+
+**Questions**
+
+## 1) Thought Exercise
+
+__Use the examples provided above to write a script that follows the ‘thought exercise to fix ideas’ on page 98 of OSU.__
+
+Use the basic equation (z = 2x + 3y + r), but instead of adding or subtracting 1 from each value, randomly add or subtract an integer (whole number) in the range 0–9 and prepare an isoline map of the result you obtain. You can get random numbers from a spreadsheet or from tables in most statistics textbooks.Take two digits at a time. If the first digit is less than 5 (0–4), add the next digit to your result; if it is 5 or more, subtract the next digit.
+
+Raster
+```{r}
+#create a raster
+r <- raster(xmn=0, xmx=7, ymn=0, ymx=7, ncol=8, nrow=8)
+
+#get x and y raster for the equation
+X <- init(r, 'x')
+Y <- init(r, 'y')
+
+#plot to make sure it worked
+par(mfrow = c(1,2))
+plot(X, main = 'x')
+plot(Y, main = 'y')
+par(mfrow = c(1,1))
+```
+
+Random numbers
+```{r}
+#set seet to start in the same "random" place
+set.seed(0)
+
+#get random numbers for the matrix
+#book asks for "2 digits at a time"
+n <- round(runif(ncell(r), min = 0, max = 9))
+m <- round(runif(ncell(r), min = 0, max = 9))
+
+# book asks "If the first digit is less than 5, add the next digit to your result; if it is 5 or more, subtract the next digit"
+# I have approxamated this using ifelse
+s <- ifelse(n < 5, n + m, n - m)
+
+#fill the raster with s
+R <- setValues(r, s)
+
+#looks random?
+plot(R, main = "Random Generated Raster")
+```
+
+Plot the random contours
+```{r}
+#use the equation from the book
+Z <- 2*X + 3*Y + R
+
+#plot with contours
+plot(Z, main = "Random Contours in Raster")
+text(Z, cex = .75)
+contour(Z, add = T, labcex = 1, lwd = 2, col = 'red')
+```
+
+Make a function
+```{r}
+#we can make a function of this to repeat the random pattern
+f <- function() {
+    n <- round(runif(ncell(r), min = 0, max = 9))
+    m <- round(runif(ncell(r), min = 0, max = 9))
+    s <- ifelse(n < 5, n + m, n - m)
+    R <- setValues(r, s)
+    Z <- 2*X + 3*Y + R
+    return(Z)
+}
+```
+
+Plot a pattern
+```{r}
+#ensure replicability with set.seed
+set.seed(2)
+#set columns and rows and the margins (mai)
+par(mfrow=c(2,2), mai=c(0.5,0.5,0.5,0.5))
+#make 4 plots
+for (i in 1:4) {
+    pattern <- f()
+    plot(pattern)
+    text(pattern, cex=.75)
+    contour(pattern, add=TRUE, labcex=1, lwd=2, col='red')
+}
+par(mfrow = c(1,1))
+title(main = "Random Contoured Rasters", line = -1.5, outer = T)
+```
+
+## 2) Normal Distribution Plots
+
+__Use the example of the CSR points maps to write a script that uses a normal distribution, rather than a random uniform distribution (also see box ‘different distributions’; on page 99 of OSU)__
+
+Function for a uniform distribution
+```{r}
+#this creates a random plot using runif 
+csr <- function(n, r=99, plot=FALSE) {
+    x <- runif(n, max=r)
+    y <- runif(n, max=r)
+    if (plot) {
+        plot(x, y, xlim=c(0,r), ylim=c(0,r))
+    }
+}
+```
+
+Plots for a uniform distribution
+```{r}
+#set.seed to start in the same random place
+set.seed(20)
+
+#set plotspace and margins
+par(mfrow=c(2,2), mai=c(.5, .5, .5, .5))
+
+#plot 4 of them
+for (i in 1:4) {
+    csr(50, plot=TRUE)
+}
+par(mfrow = c(1,1))
+title(main = "Random Uniform Distribution Plots", line = -1.5, outer = T)
+```
+
+Function for a normal distribution
+
+```{r}
+#instead of runif, we'll use rnorm, note the different arguments from runif
+csr.norm <- function(n, mn = 0, std = 2, plot=FALSE) {
+    x <- rnorm(n, mean = mn, sd = std)
+    y <- rnorm(n, mean = mn, sd = std)
+    if (plot) {
+        plot(x, y)
+    }
+}
+```
+
+Plots for the normal distribution
+
+```{r}
+
+#again plot, set seed
+set.seed(50)
+
+#set plotspace and margins
+par(mfrow=c(2,2), mai=c(.5, .5, .5, .5))
+
+#draw 4 plots
+for (i in 1:4) {
+    csr.norm(50, plot=TRUE)
+}
+par(mfrow = c(1,1))
+title(main = "Random Normal Distribution Plots", line = -1.5, outer = T)
+```
+
+> The normal distributions appear to be more clustered together around the mean and less "random" as in the uniform distribution. The points are closer together and less evenly distributed. The closeness of points can be manipulated by changing the standard deviation.
+
+## 3) Chessboard Rasters
+
+__Do the generated chess boards look (positively or negatively) spatially autocorrelated?__
+
+Generate a raster
+```{r}
+#make a raster
+r <- raster(xmn=0, xmx=1, ymn=0, ymx=1, ncol=8, nrow=8)
+
+#make polygons to map the edge lines
+p <- rasterToPolygons(r)
+
+#function chess to make a random chess board
+chess <- function(label) {
+    s <- sample(c(-1, 1), 64, replace=TRUE)
+    values(r) <- s
+    plot(r, col=c('black', 'white'), 
+         legend=FALSE, axes=FALSE, box=FALSE, main = label)
+    plot(p, add=T, border='gray')
+}
+```
+
+Plot some chessboards
+```{r}
+#set random seed
+set.seed(23)
+
+#windows and margins
+par(mfrow=c(2,2), mai=c(0.2, 0.3, 1, 0.2))
+
+#for loop to draw 4 plots
+for (i in 1:4) {
+    chess(label = i)
+}
+par(mfrow = c(1,1))
+title(main = "Random Generated Chessboards", line = -1.5, outer = T)
+```
+
+> Looking at the four generated chessboards, I would say that there is little to no spatial autocorrelation. I would guess that 3 & 4 might display some level of negative autocorrelation, but without doing further analyis, like using moran's I, I can not say for sure. 
+
+## 4) Independent Generation
+
+__How would you, conceptually, statistically test whether the real chessboard used in games is generated by an independent random process?__
+
+> First, there is no distrubtion of chessboards that exist to test if a "real" chessboard is generated by an IRP. We would need to simulate a sample distribution like we did above, check to see if it is normally distributed, and then test the likelihood against a real chessboard.
+
+> Because chessboards are perfectly negatively autocorrelated, we could test the likelyhood of perfect correlation against the null, random generation. We could calculate autocorrelation with the moran's I statistic.
+
+## 5) (bonus) 
+
+__Can you explain the odd distribution pattern of random line lengths inside a rectangle?__
+
+> The function that creates the lines generates a point and finds a random angle for that point. The rectangle is bounded by axes of 0.6 and 0.8 (by default)
+
+> Given the rectangle has a max line length of 1. There are only 4 points and 2 angles that produce a line length of 1, while line lengths >= 0.6 have many more possible point / angle combinations, resulting in a odd distribution pattern given in the example.
+

@@ -1,0 +1,151 @@
+---
+title: "The Language Of Programming"
+author: "Elise Hellwig"
+date: "2/8/2019"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+
+R markdown documents (Rmd) allow you to include both plain text (like this) and R code in the same document. To create a document that combines both plain text and R code, press the **Knit** button at the top of this window. 
+
+You embed R code using an R chunk, like this:
+
+```{r math}
+
+5+3
+sqrt(25)
+
+
+```
+
+
+You can also run the code without knitting. You can do this in three ways: 
+
+ * Copy and paste the code into the console.
+ * Click on the green arrow at the top right of the R chunk.
+ * Put your cursor on the line of code you want to run and hit `ctrl+enter` or `cmd+enter`.
+
+
+# Variables
+
+Variables are how you store things you want to use for later. Below is an example. Can you create a variable and then check to see what is inside of it?
+
+```{r variables}
+
+
+fib <- c(1,1,2,3,5,8) #creating a variable
+fib #printing out what is inside the variable fib
+
+
+```
+
+
+# Functions
+
+Almost everything you do in this class will require using functions. A very common function I use is `length()`.
+
+```{r functions}
+
+length(fib) #how many values are in the variable fib?
+
+fiblength <- length(fib) #saving the length of fib to another variable
+fiblength #printing out the variable fiblength
+
+
+```
+
+We can also create our own functions if the function we want doesn't exist. This is part of what makes R so powerful. Below I create a function that calculates the distance between 2 points.
+
+```{r functions2}
+
+#creating a function
+distance <- function(x1, y1, x2, y2) { #define the function name and inputs
+    difs <- (x2-x1)^2 + (y2-y1)^2 #do some calculations with the inputs
+	root <- sqrt(difs) #take square root
+	
+	return(root) #return the result of our calculations
+	}
+
+distance(1,2,5,6)
+
+```
+
+See what happens if you remove the last instruction in the function `distance()` (the one that starts with `return`).
+
+
+# Arguments
+
+We've already used arguments in our previous R code. Every time we use a function we have to enter the required arguments. `distance()` has 4 arguments. `length()` has only one. One of the 4 lines of code below are not equivalent. Why is that?
+
+```{r arguments}
+
+#calculating the distance between points (1,2) and (5,6) 
+
+#named arguments
+distance(x1=1, y1=2, x2=5, y2=6) #way 1
+distance(y1=2, y2=6, x1=1, x2=5) #way 2
+
+#unnamed arguments
+distance(1, 2, 5, 6) #way 3
+distance(2, 6, 1, 5) #way 4
+
+
+```
+
+
+# Classes
+
+This is a really hard concept, so don't worry if you find it confusing. Every object you create will have a class, just like everything in the universe has a type. One of the problems with R is that it may give you different results depending on what class your argument is.
+
+
+```{r classes}
+
+#creating variable to store some numbers
+var1 <- c(1:3, 7:10)
+var1 #looking at the variable we just created
+class(var1) #checking the class of the variable we just created
+
+#creating a variable to store some numbers and a word
+var2 <- c(1:3, 7:10, "tango", 97)
+var2 #looking at the variable we just created
+class(var2) # checking the class of the variable we just created
+
+```
+
+
+
+# Paths 
+
+Paths can also be challenging but they are very important. They tell your computer where to look for the data you are trying to import or where you are trying to save results. 
+
+
+```{r paths}
+
+#get your working directory and save it as the variable mypath
+mypath <- getwd()
+mypath #print out your working directory
+
+list.files(mypath) # listing all the files in my working directory
+
+#the tilda (~) an abbreviation for your home directory
+
+homepath <- '~' #save home directory as variable homepath
+list.files(homepath) #list all files in home directory
+
+#change working directory using setwd()
+
+```
+
+### Your working directory may be different when you are knitting!
+
+To get around this, it is best to use absolute paths when importing data using an rmarkdown file.

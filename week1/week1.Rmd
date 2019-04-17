@@ -1,0 +1,210 @@
+---
+title: "GEO 200CN Week 1"
+author: "Tyler Jackson"
+output:
+  html_document:
+    theme: journal
+    toc: true
+    toc_float: true
+---
+# Part 1 
+
+## 1) Read and explore data
+
+There are two text files with data (loblolly.dat) and (ChickWeightSub.csv). 
+Write a script (including brief comments) that
+
+### a) Reads them into R
+```{r}
+#use read.table for the .dat file
+loblolly <- read.table("./data/loblolly.dat", header = TRUE)
+
+#does it look good?
+head(loblolly) #yes
+#read.csv for the csv
+chx_wt <- read.csv("./data/ChickWeightSub.csv")
+
+#look good?
+head(chx_wt) #yes
+```
+
+### b) for both data sets, lists all the variable names
+```{r}
+#get the variable names using names()
+names(loblolly)
+
+names(chx_wt)
+```
+
+###c) for each variable in one of the data sets, use a function to compute the min and a function to compute the mean value 
+
+Minimums
+```{r}
+#calculate the min for each variable in loblolly
+min(loblolly$height)
+min(loblolly$age)
+min(loblolly$Seed)
+```
+
+Means
+```{r}
+#calculate the mean of each variable in loblolly
+mean(loblolly$height)
+mean(loblolly$age)
+mean(loblolly$Seed)
+```
+
+###d) now pick one variable from one data set and use functions summary, table, quantile, and boxplot
+
+Summary
+```{r}
+#summary gives stat data on a variable
+summary(chx_wt$Weight)
+```
+
+Table
+```{r}
+#table gives the count for the number of appearances of each value
+table(chx_wt$Weight)
+```
+
+Quantile
+```{r}
+#gives quantiles of the values 
+quantile(chx_wt$Weight)
+```
+
+Boxplot
+```{r}
+#creates a boxplot with max and min and iqr and median
+boxplot(chx_wt$Weight)
+```
+
+# Part 2
+
+## 2) Functions
+
+###a) Use the files from lab 1 to compute mean values for each variable using 'apply'
+
+```{r}
+#apply, "2" is columnwise
+apply(chx_wt, 2, mean)
+
+apply(loblolly, 2, mean)
+```
+
+
+###b) Write a function 'f' that behaves like this:
+
+>f('Jim')
+
+> [1] "hello Jim, how are you"
+
+```{r}
+
+#function asks for a name and paste it into a sentence
+f <- function(name) {
+  x <- paste0("hello ", name, ", how are you") #paste0 means no spaces
+  return(x)
+}
+
+f("Jim")
+```
+
+
+###c) Write a function 'sumOfSquares' that behaves like this:
+
+> d <- c(1,5,2,4,6,2,4,5)
+
+> sumOfSquares(d)
+
+> [1] 21.875
+
+```{r}
+#subtracts the mean value of all numbers from each number, squares them and sums them
+sumOfSquares <- function(n) {
+    x <- sum((n - mean(n))^2)
+    return(x)
+}
+
+#create a vector of numbers
+d <- c(1,5,2,4,6,2,4,5)
+
+#pass to the function
+sumOfSquares(d)
+
+```
+
+To compute the "sum of squares", subtract the mean value of all numbers from each number. Square these numbers and sum them
+
+
+## 3) Data preparation. 
+
+Use the data in "students.csv" and "scores.dat" to assess if there is a relation between the "group" or "age" of a student and their average score and for the three subjects (math, english, geography)
+```{r}
+#read in the data
+students <- read.csv("./data/students.csv")
+
+#scores has -999 as a value, replace with NA for later removal from calculations
+scores <- read.table("./data/scores.dat", header = TRUE, na.strings = "-999")
+
+head(students)
+head(scores)
+```
+
+###a) use reshape and merge to combine the two data sets
+
+```{r}
+#reshape the data from long to wide
+scores_reshape <- reshape(scores, idvar = "student", timevar = "subject", direction = "wide")
+
+#did that work?
+head(scores_reshape) #yes
+
+#merge joinkey is students in students and student in the reshape
+student_scores <- merge(students, scores_reshape, by.x = "students", by.y = "student")
+
+#check it out
+head(student_scores)
+```
+
+###b) compute correlation coefficients
+
+```{r}
+#minus the first column because it's not a number, complete.obs excludes na
+cor(student_scores[,-1], use = "complete.obs")
+```
+
+###c) produce a relevant plot
+
+Scatterplot Matrix
+```{r}
+#create a scatterplot matrix of variables
+pairs(group ~ age + score.math + score.english + score.geography, student_scores, na.action = na.omit)
+```
+
+Scores by Age
+```{r}
+library(ggplot2)
+library(ggthemes)
+#using geom point to plot each subject score by Age
+ggplot(student_scores, aes(x = age, y = Score)) +
+  geom_point(aes(y = score.math, color = "Math")) +
+  geom_point(aes(y = score.geography, color = "Geography")) +
+  geom_point(aes(y = score.english, color = "English")) +
+  labs(color = "Subject", title = "Subject Scores by Age", subtitle = "Points") +
+  theme_gdocs()
+```
+
+Points are hard to read, let's try smoothed means
+```{r}
+#using geom smooth to plot each subject score by Age
+ggplot(student_scores, aes(x = age, y = Score)) +
+  geom_smooth(aes(y = score.math, color = "Math")) +
+  geom_smooth(aes(y = score.geography, color = "Geography")) +
+  geom_smooth(aes(y = score.english, color = "English")) +
+  labs(color = "Subject", title = "Subject Scores by Age", subtitle = "Smoothed Means") +
+  theme_tufte()
+```
+
+> Note that the warning message in both refers to the -999 in the original dataset that was coverted to NA on importing the data.

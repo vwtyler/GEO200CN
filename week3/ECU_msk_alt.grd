@@ -1,0 +1,27 @@
+[general] 
+creator=R package 'raster' 
+created= 2011-11-12 14:48:07 
+[georeference] 
+nrows= 804 
+ncols= 2004 
+xmin= -91.8 
+ymin= -5.1 
+xmax= -75.1 
+ymax= 1.6 
+projection= +proj=longlat +ellps=WGS84 
+[data] 
+datatype= INT2S 
+byteorder= little 
+nbands= 1 
+bandorder= BIL 
+categorical= FALSE 
+minvalue= -13 
+maxvalue= 6074 
+nodatavalue= -9999 
+[legend] 
+legendtype=  
+values=  
+color=  
+[description] 
+layername= ECU_msk_alt 
+history=  

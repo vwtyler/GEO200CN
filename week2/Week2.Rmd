@@ -1,0 +1,651 @@
+---
+title: "Week 2 HW"
+author: "Tyler Jackson"
+date: "4/14/2019"
+output: 
+  html_document:
+    theme: journal
+    toc: true
+    toc_float: true
+    toc_depth: 2
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Chapter 1
+
+## Question 1
+__Compare the results in OSU and computed here for the three yardsticks. How and why are they different?__
+
+In [O'Sullivan and Unwin (2010)](https://www.wiley.com/en-us/Geographic+Information+Analysis%2C+2nd+Edition-p-9780470288573) (OSU) they get a fractal dimension (D) of `1.44` for their measurements. In the `rspatial` package data [example](https://www.rspatial.org/rosu/Chapter1.html) they get a D of `1.379`. The difference in this is due to variations between the two datasets. For example, when the measure "stick" is 10 km, the OSU gets a coastline of 180km with 18 points while the rspatial example calculation gets a coastline of 390 km with 39 points. This reflects differences in the detail and/or scale variations between the data. As the `rspatial` package was compiled between 2016-2019, it could be likely that the data are newer in the package then from the OSU book that was published in 2010. It's likely the maps are just different scales.
+
+# Chapter 2
+
+Create "matrices" from the book.
+```{r}
+# independent variable
+ind <- c(87, 95, 72, 37, 44, 24, 
+         40, 55, 55, 38, 88, 34,
+         41, 30, 26, 35, 38, 24,
+         14, 56, 37, 34,  8, 18, 
+         49, 44, 51, 67, 17, 37, 
+         55, 25, 33, 32, 59, 54)
+# dependent variable
+dep <- c(72, 75, 85, 29, 58, 30, 
+         50, 60, 49, 46, 84, 23, 
+         21, 46, 22, 42, 45, 14,
+         19, 36, 48, 23,  8, 29, 
+         38, 47, 52, 52, 22, 48, 
+         58, 40, 46, 38, 35, 55)
+```
+
+Actually make them matrices using `matrix`.
+```{r}
+#create a matrix from the ind and dep data
+#byrow=TRUE because r does columwise by default
+mi <- matrix(ind, ncol=6, nrow=6, byrow=TRUE)
+md <- matrix(dep, ncol=6, nrow=6, byrow=TRUE)
+```
+
+## Question 1
+__Create these matrices from__ `ind` __and__ `dep` __without using__ `byrow=TRUE`. __Hint: use the__ `t` __function after you made the matrix.__
+
+Independent Variable Matrix
+```{r}
+#create the columnwise matrix
+mi.columnwise <- matrix(ind, ncol = 6, nrow = 6)
+
+#compare the two matrices for the ind variable
+mi
+mi.columnwise
+```
+
+Transpose the columnwise matrix
+```{r}
+#transpose it using t
+mi.tpose <- t(mi.columnwise)
+
+#compare to check, are they the same?
+mi
+mi.tpose
+```
+
+Dependent Variable Matrix
+```{r}
+#create the columnwise matrix
+md.columnwise <- matrix(dep, ncol = 6, nrow = 6)
+
+#compare to the byrow=TRUE matrix
+md
+md.columnwise
+```
+
+Transpose the columwise matrix
+```{r}
+#transpose it using t
+md.tpose <- t(md.columnwise)
+
+#compare to check, are they the same?
+md
+md.tpose
+```
+
+## Question 2
+ __Instead of the `mean` function What other functions could, in principle, reasonably be used in an aggregation of raster cells?__
+ 
+Load the raster package
+```{r}
+#we need the raster package for these
+library(raster)
+```
+
+Turn the matrices into rasters
+```{r}
+#uses the raster function
+ri <- raster(mi)
+rd <- raster(md)
+```
+
+Aggregation
+```{r}
+#apply the mean funtion over two raster cells
+ai1 <- aggregate(ri, c(2, 1), fun=mean)
+ad1 <- aggregate(rd, c(2, 1), fun=mean)
+
+```
+
+Plot the Independent Raster
+```{r}
+#change the view window to show the aggregate and the non agg
+par(mfrow = c(1,2))
+#plot ri
+plot(ri, legend = FALSE)
+text(ri)
+
+#plot ai1
+plot(ai1)
+text(ai1)
+#change view window back
+par(mfrow = c(1,1))
+```
+
+We can use other functions within aggregation so long as the output is a number. For example, `min`, `max`, `median`, etc. 
+
+Here's an example:
+```{r}
+#aggregate by sum
+ai.sum <- aggregate(ri, c(2,1), fun = sum)
+```
+
+Plot the original and the agg
+```{r}
+#view window
+par(mfrow = c(1,2))
+#plot ri
+plot(ri, legend = FALSE)
+text(ri)
+
+#plot ai.sum
+plot(ai.sum)
+text(ai.sum)
+par(mfrow = c(1,1))
+```
+
+## Question 3
+__There are other ways to do the above (converting two `RasterLayer` objects to a `data.frame`). Show how to obtain the same result (`d1`) using `as.vector` and `cbind`.__
+
+Make a raster stack
+```{r}
+#create a stacked raster
+s1 <- stack(ai1, ad1)
+
+#name the objects in the raster stack
+names(s1) <- c('ind', 'dep')
+
+#check it out
+s1
+
+#plot
+par(mfrow = c(1,1))
+plot(s1)
+```
+
+Create a dataframe
+```{r}
+#the robert way
+d1 <- as.data.frame(s1)
+
+#compare the two
+head(s1)
+head(d1)
+
+```
+
+Create a dataframe part 2
+```{r}
+#using as.vector to create two vectors and bind them with cbind
+d1.bind <- cbind(as.vector(ai1), as.vector(ad1))
+
+#look the same?
+head(d1)
+head(d1.bind)
+
+#note that this creates a matrix not a dataframe, as.data.frame could be used
+```
+
+## Question 4
+__Show R code to make a cluster dendogram summarizing the distances between these six sites, and plot it. See__ `?hclust`.
+
+Create X,Y pts matrix
+```{r}
+A <- c(40, 43)
+B <- c(1, 101)
+C <- c(54, 111)
+D <- c(104, 65)
+E <- c(60, 22)
+F <- c(20, 2)
+#row bind
+pts <- rbind(A,B,C,D,E,F)
+
+#look good?
+head(pts)
+```
+
+Get distances
+```{r}
+#dist gets distance matrix
+dis <- dist(pts)
+dis
+#convert to matrix
+D <- as.matrix(dis)
+round(D)
+```
+
+Create cluster dendogram
+```{r}
+#use hclust, method in this instance irrelavent
+#members refers to different clusters
+dis.dendo <- hclust(dis, method = "ward.D2", members = NULL)
+plot(dis.dendo)
+```
+
+## Question 5
+
+__Show how you can do 'column-normalization' (Just an exercise, in spatial data analysis this is not a typical thing to do).__
+
+First row normalization:
+Get a weights matrix
+```{r}
+W <- 1 / D
+round(W, 4)
+```
+
+Row normalization:
+```{r}
+#replace inf with NA
+#inf comes from dividing by 0
+W[!is.finite(W)] <- NA
+```
+
+Compute the row sums.
+```{r}
+#rowSums
+rtot <- rowSums(W, na.rm=TRUE)
+# this is equivalent to
+# rtot <- apply(W, 1, sum, na.rm=TRUE)
+rtot
+```
+
+Do they add up to 1??
+```{r}
+#divide by row totals, should be 1
+W <- W / rtot
+rowSums(W, na.rm=TRUE)
+```
+W is now row-normalized.
+
+Let's try columnwise:
+```{r}
+#get a new weights matrix
+cW <- 1 / D
+#show round to 4 decimals
+round(cW, 4)
+```
+
+Replace the inf with NA
+```{r}
+#replace inf
+cW[!is.finite(cW)] <- NA
+```
+
+Sum the columns (I'm using apply here but `colSums` would also work)
+```{r}
+#get column sums
+ctot <- apply(cW, 2, sum, na.rm=TRUE)
+ctot
+```
+
+We can't simply divide in r because it treats data row-wise, so we can force columnwise division using `sweep`. 
+```{r}
+#use sweep to do division columnwise
+cW <- sweep(cW, MARGIN = 2, FUN= "/", STATS = ctot)
+
+#do they total 1?
+colSums(cW, na.rm=TRUE)
+```
+
+
+## Question 6
+__The `SpatialPolygonDataFrame` class is defined in package sp. But we never used `library('sp')`. So how is it possible that we have one of such objects?__
+
+> The `voroni` function comes from the package `dismo`. The `dismo` package includes the `sp` package in it's NAMESPACE: `import("raster", "sp", "methods")` thus allowing for `voroni` to produce `SpatialPolygonDataFrame` objects without the `sp` package.
+
+
+# ISLR 2.3 Question 9 
+__This exercise involves the `Auto` data set studied in the lab. Make surethat the missing values have been removed from the data.__
+
+```{r}
+#load the ISLR library
+library(ISLR)
+
+#load Auto into environment object
+auto <- Auto
+```
+
+## (a) 
+__Which of the predictors are quantitative, and which are qualitative?__
+
+```{r}
+str(auto)
+```
+
+> `mpg`, `displacement`, `horsepower`, `weight`, `acceleration`, are all "quantitative", while `cylinders`, `year` are "categorical" and could be quatitative or qualitative depending on use, and `name` and `origin` are "qualitative" in that countries and names are not numbers.
+
+## (b) 
+__What is the range of each quantitative predictor? You can answer this using the `range()` function.__
+
+```{r}
+#find the range use apply and the range function, subset only the quant vars
+apply(auto[,1:7], MARGIN = 2, FUN = range)
+
+```
+
+## (c) 
+__What is the mean and standard deviation of each quantitative predictor?__
+
+```{r}
+#more apply using mean and sd
+apply(auto[,1:7], MARGIN = 2, FUN = mean)
+apply(auto[,1:7], MARGIN = 2, FUN = sd)
+```
+
+## (d) 
+__Now remove the 10th through 85th observations. What is the range, mean, and standard deviation of each predictor in the subset of the data that remains?__
+
+```{r}
+#create matrices to make a table
+r.sub <- apply(auto[-10:-85,1:7], MARGIN = 2, FUN = range)
+m.sub <- apply(auto[-10:-85,1:7], MARGIN = 2, FUN = mean)
+sd.sub <- apply(auto[-10:-85,1:7], MARGIN = 2, FUN = sd)
+
+#bind together
+table <- rbind(r.sub, m.sub, sd.sub)
+
+#make dataframe
+table.df <- as.data.frame(table)
+
+#rename the rows
+rownames(table.df) <- c("range x", "range y", "mean", "st.dev")
+
+#show it pretty
+round(table.df, 2)
+```
+
+## (e) 
+__Using the full data set, investigate the predictors graphically, using scatterplots or other tools of your choice. Create some plots highlighting the relationships among the predictors. Comment on your findings.__
+
+```{r}
+#move the window so we can see the title and subtitle
+par(mar = c(5, 4, 1, 2))
+#pairswise matrix for variables to see colinearity 
+pairs(mpg ~ year + cylinders + displacement + horsepower + weight + acceleration, auto, na.action = na.omit)
+title(main = "Pairs Scatterplots", sub = "for Auto dataset")
+#reset the window
+par(mar = c(5, 4, 4, 2) + 0.1)
+```
+
+```{r}
+#load ggplot to make pretty plots
+library(ggplot2)
+library(ggthemes)
+```
+
+```{r}
+#mpg ~ year
+ggplot(auto) + 
+  geom_jitter(aes(factor(year), mpg)) +
+  labs(title = "MPG by Year (1970-1982)", 
+       subtitle = "ISLR Auto Dataset", 
+       caption = "Tyler Jackson") +
+  theme_economist()
+  
+```
+
+> It looks like there is a positive relationship between mpg and year.
+
+```{r}
+#acceleration ~ mpg
+ggplot(auto) + 
+  geom_jitter(aes(mpg, acceleration)) +
+  labs(title = "MPG by Acceleration (1970-1982)", 
+       subtitle = "ISLR Auto Dataset", 
+       caption = "Tyler Jackson") +
+  theme_economist()
+```
+
+> It looks like mpg and acceleration time have a positive relationship.
+
+```{r}
+#acceleration ~ mpg
+ggplot(auto) + 
+  geom_jitter(aes(weight, acceleration)) +
+  labs(title = "Weight by Acceleration (1970-1982)", 
+       subtitle = "ISLR Dataset", 
+       caption = "Tyler Jackson") +
+  theme_economist()
+```
+
+> It looks like weight and acceleration are negatively correlated.
+
+##(f) 
+
+__Suppose that we wish to predict gas mileage (mpg) on the basis of the other variables. Do your plots suggest that any of the other variables might be useful in predicting mpg? Justify your answer.__
+
+> Looking at the pairs scatterplot, it would appear that many factors when taken independently could be useful in predicting mpg. For instance, displacement, cylinders, horsepower, and weight, all have a negative relationship with mpg, while year and acceleration have a positive correlation. However, many of the variables are co-linear. Cylinders, displacement, horsepower, and weight all have a positive relationship with each other and negative relationship with mpg, so it would be hard to say one of those has more predictive power over another. Year looks better from the scatterplots, and could be a good predictor, as well as acceleration.
+
+Looking at a correlation table:
+```{r}
+round(cor(auto[,1:7], use = "complete.obs"), 2)
+```
+
+> Here we can see that engine size and weight really have a high impact on mpg, with correlation coefficients ranging from -0.78 to -0.83 (in cylinders, displacement, horsepower, and weight). So while I can say it looks like mpg has improved over time, the engine really determines the mpg. Year also has a negative impact on engine size, which could explain the decrease in mpg over time.
+
+# ISLR 3.6 Question 8
+This question involves the use of simple linear regression on the Auto
+data set.
+
+##(a) 
+
+__Use the lm() function to perform a simple linear regression with mpg as the response and horsepower as the predictor. Use the summary() function to print the results. Comment on the output.__
+
+```{r}
+#build a model with lm
+fit.horse <- lm(mpg ~ horsepower, auto)
+
+#get the results
+summary(fit.horse)
+
+```
+
+For example:
+###i. 
+__Is there a relationship between the predictor and the response?__
+  
+  > Looking at the regression results, the p-values are nearly zero, indicating statistical significance. This means there is a relationship between the predictor and the response. 
+  
+###ii. 
+__How strong is the relationship between the predictor and the response?__
+  
+  > The coefficient for horsepower is -0.15, meaning that for each +1 change in horsepower, mpg decreases by 0.15. The R^2 indicates that 60% of the variation in the response can be explained by the model. This would indicate relatively strong explanatory power in the model.
+  
+### iii. 
+__Is the relationship between the predictor and the response positive or negative?__
+  
+  > Negative. As horsepower increases, mpg should decrease. 
+
+### iv. 
+__What is the predicted mpg associated with a horsepower of 98? What are the associated 95% confidence and prediction intervals?__
+
+95% Confidence interval:
+```{r}
+#we can use predict() to estimate Y at a given X
+#the interval agrument allows a choice of the type of interval
+predict(fit.horse, 
+        data.frame(horsepower = c(98)), 
+        interval ="confidence", 
+        level = 0.95)
+```
+
+> The predicted mpg associated with hp of 98 is 24.46. The 95% confidence interval is 23.97 to 24.96.
+
+95% Prediction Interval:
+```{r}
+#note the interval agument here is 'prediction'
+predict(fit.horse, 
+        data.frame(horsepower = c(98)), 
+        interval ="prediction", 
+        level = 0.95)
+```
+
+> The predicted mpg associated with hp of 98 is 24.46. The 95% prediction interval is 14.81 to 34.12.
+
+## (b) 
+
+__Plot the response and the predictor. Use the abline() function to display the least squares regression line.__
+
+We can use ggplot to do this using the geom_smooth to the draw the abline:
+```{r}
+#method = lm on geom smooth for a lm line
+ggplot(auto) +
+  geom_point(aes(horsepower, mpg)) +
+  geom_smooth(aes(horsepower, mpg), method = "lm", se = FALSE) +
+  labs(title = "MPG and Horsepower", subtitle = "with least squares regression line", caption = "ISLR Auto data") +
+  theme_economist()
+```
+
+We can also do this old school with plot() and abline():
+```{r}
+#plot the data
+plot(mpg ~ horsepower, auto)
+
+#the lm line
+abline(fit.horse, lwd = 2, col = "red")
+title(main = "MPG and Horsepower with LM line", sub = "for Auto dataset")
+
+```
+
+
+## (c) 
+
+__Use the plot() function to produce diagnostic plots of the least squares regression fit. Comment on any problems you see with the fit.__
+
+```{r}
+#set up the viewing window 2x2
+par(mfrow = c(2,2))
+plot(fit.horse)
+par(mfrow = c(1,1))
+```
+
+> The first plot, residuals vs. fitted, indicates a non-linear relationship that is not explained by the model. The second plot(Q-Q) indicates a normal distribution in the residuals, not likely a problem there. The third plot (Scale-location) shows some level of homoscedastcitiy, however it looks like a lot of values cluster on the high end which could indicate non-equal variance. Finally, the last plot (Residuals vs. Leverage) we see no influential cases and the Cook's distance lines are not visible, indicating no influential outliers.
+
+# ISLR 3.6 Question 9 
+This question involves the use of multiple linear regression on the
+Auto data set.
+
+## (a) 
+
+__Produce a scatterplot matrix which includes all of the variables in the data set.__
+```{r}
+#change margins so the title doesn't overlap
+par(mar = c(5, 4, 1, 2))
+#using pairs
+pairs(auto)
+title(main = "Pairs Scatterplots", sub = "for Auto dataset")
+#reset the margins to default
+par(mar = c(5, 4, 4, 2) + 0.1)
+
+```
+
+## (b) 
+
+__Compute the matrix of correlations between the variables using the function cor(). You will need to exclude the name variable, cor() which is qualitative.__
+
+```{r}
+#compute table all colums except the last
+cor.table <- cor(auto[,1:8])
+
+#use round to show to 2 decimal places
+round(cor.table, 2)
+```
+
+## (c) 
+__Use the lm() function to perform a multiple linear regression with mpg as the response and all other variables except name as the predictors. Use the summary() function to print the results. __
+
+```{r}
+#use . to indicate all variables and -name to exclude name
+lm.fit <- lm(mpg ~ . -name, auto)
+
+summary(lm.fit)
+```
+
+  Comment on the output. For instance:
+  
+### i. 
+ 
+ __Is there a relationship between the predictors and the response?__
+  
+  > It seems that weight, year, and origin all have highly significant correlations, displacement is also significant but less so. The r-squared indicates that ~82% of the variation in the response can be explained by predictors in the model.
+  
+### ii. 
+ 
+__Which predictors appear to have a statistically significant relationship to the response?__
+  
+  > Weight, year, origin (0.001), and displacement (.01).
+  
+### iii. 
+ 
+ __What does the coefficient for the year variable suggest?__
+  
+  > The coefficient in the year variable is 0.75, which means that for each increase in year, there is a 0.75 increase in mpg.
+  
+## (d) 
+__Use the plot() function to produce diagnostic plots of the linear regression fit. Comment on any problems you see with the fit.__
+
+```{r}
+#set up the plot space
+par(mfrow=c(2,2))
+plot(lm.fit)
+#reset the plot space
+par(mfrow = c(1,1))
+```
+
+> The first plot, residuals vs. fitted, indicates a non-linear relationship that is not explained by the model because of the non-random distribution of points. The second plot(Q-Q) indicates a normal distribution in the residuals, with a skew on the top end. The third plot (Scale-location) shows some level of homoscedastcitiy, however it looks like a lot of values cluster on the high end which could indicate non-equal variance. Finally, the last plot (Residuals vs. Leverage) we see no influential cases but one point (14) could have high leverage.
+
+Do the residual plots suggest any unusually large outliers? Does the leverage plot identify any observations with unusually high leverage?
+
+> All of the values in the Residuals vs. Leverage plot are within the Cook's distance lines, but there is one value alone (14) that could have high leverage. Some values are higher than 4 or lower than -2 indicating outliers. 
+
+## (e) 
+
+__Use the * and : symbols to fit linear regression models with interaction effects. Do any interactions appear to be statistically significant?__
+
+New model using interactions of all terms with 90% or higher correlation coefficient:
+```{r}
+#add interaction terms using *
+#same as a+b+a:b
+fit.interactions <- lm(mpg ~ cylinders*displacement + displacement*weight + horsepower*displacement, auto)
+
+summary(fit.interactions)
+```
+
+> In this model, the interaction between displacement and horsepower is statistically significant. Other interactions included were not.
+
+## (f) 
+
+__Try a few different transformations of the variables, such as log(X), √ X, X2. Comment on your findings.__
+
+```{r}
+#add terms that are transformed
+fit.trans <- lm(mpg ~ .-name + I(horsepower^2) + 
+                  log(horsepower) + sqrt(horsepower), 
+                auto)
+
+summary(fit.trans)
+```
+
+> Looks like compared to the first fit, this model improves with a higher R^2, but the transformed terms echo the significance of horsepower untransformed.
+
+```{r}
+par(mfrow = c(2,2))
+plot(fit.trans)
+par(mfrow = c(1,1))
+```
+
+> Looking at the residuals, it would seem that the response and fitted values have an almost linear relationship. The Q-Q plot shows some issues with distribution looking at the low and high ends, they seem to skew. The leverage plot indicates many values that could be outliers, but no influential cases.
+
+> Overall it's hard to interperet the transformed variables without having some theoretical basis for transforming them. 
+
+
+
