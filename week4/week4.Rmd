@@ -1,0 +1,300 @@
+---
+title: "Week 4 HW"
+author: "Tyler Jackson"
+date: "4/22/2019"
+output:
+  html_document:
+    theme: journal
+    toc: true
+    toc_float: true
+    toc_depth: 2
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# Lab 7
+
+## Libraries
+```{r}
+library(raster)
+library(rgdal)
+library(MASS)
+library(dplyr)
+library(tidyverse)
+library(rasterVis)
+```
+
+## Setup
+```{r}
+
+#data path
+mypath <- "/Users/tyler/Dropbox/_200CN/labs/week4/data/"
+
+#unzip lab7 data
+unzip(zipfile = file.path(mypath, "lab7_data.zip"), exdir = file.path(mypath))
+```
+
+# Part 1
+
+__Logistic regression__
+
+## 1 Fix non-logical variable
+
+The following code returns an error:
+```{r}
+#create Yes/No variable for travels by train
+y <- c('No','Yes','No','Yes','No','Yes',
+       'No','Yes','Yes','Yes','No','No',
+       'No','No','Yes','Yes')
+
+#travel times by car
+x <- c(32,89,50,49,80,56,40,70,72,76,32,58, 12, 15, 110, 120)
+
+#run a model, it doesn't work
+gm <- glm(y~x, family=binomial)
+```
+
+How can you fix that? Please complete the code below
+```{r}
+#could use ifelse to change Yes = 1 and No = 0
+#y <- ifelse(y == "Yes", 1, 0)
+
+#could also pass as a factor 
+y <- factor(y)
+
+
+#does it work?
+gm <- glm(y~x, family=binomial)
+
+#check the results
+summary(gm)
+```
+
+# Part 2 
+
+__Linear discriminant analysis with spatial data__
+
+Read in data
+```{r}
+#read sample data for first question
+s <- read.csv(file.path(mypath, "samples.csv"), stringsAsFactors = F)
+
+head(s)
+```
+
+## 2. How many records?
+
+__How many records do we have?__
+
+```{r}
+#we can get the records using nrow
+nrow(s)
+```
+
+## 3. Subset data
+
+__Remove the human dominated land cover (urban & agriculture), and also water and wetland from ‘s’ (because you would need additional predictors to adequately model these).__
+
+```{r}
+#get actual names of the land covers and their freq
+table(s$whr)
+
+#we will use filter() from the dplyr package
+s <- filter(s, whr != "Urban" & whr != "Agriculture" & whr != "Water" & whr != "Wetland")
+```
+
+## 4. How many records now?
+
+__How many records do we have now?__
+
+```{r}
+nrow(s)
+```
+
+
+To make a map of the locations of the records on top of a map of California, we need to get the boundary of CA, and tranform it to Teale Albers.
+
+## 5. Finish the code below
+
+```{r}
+
+#get usa borders
+usa <- getData('GADM', country='USA', level=1)
+
+#subset California
+ca <- usa[usa$NAME_1 == 'California', ]
+
+#specify a projection
+teale_albers <- CRS('+proj=aea +lat_1=34 +lat_2=40.5 +lat_0=0 +lon_0=-120 +x_0=0 +y_0=-4000000 +datum=NAD83 +units=m')
+
+#transform the subset into teale_albers
+ca <- spTransform(ca, teale_albers)
+
+#plot
+plot(ca, main = "Land Use Samples in CA")
+points(s)
+
+#we get a warning, why?
+```
+
+
+We did not collect climate data. But we have the locations of our samples, so we can extract that from other data sources. In this case we’ll use the the file ‘climate.grd’ (extracted from the WorldClim database). This file has multiple layers. In that case we can use the ‘brick’ function to create a multi-layered RasterBrick object.
+
+```{r}
+b <- brick(file.path(mypath, 'climate.grd'))
+b
+
+plot(b)
+```
+
+## 6. Extract Raster
+
+__Use the ‘extract’ function to extract raster cell values for each point__
+
+```{r}
+#extract, the y term must be in x, y format, so we exclude the third var in s
+e <- extract(b, s[,-3])
+
+#bind the colums back (sort of like a join)
+s <- cbind(s, e)
+
+#check it out
+head(s)
+```
+
+Set 20% of the data apart to test the model.
+```{r}
+set.seed(0)
+i <- sample(nrow(s), 0.2 * nrow(s))
+test <- s[i,]
+train <- s[-i,]
+```
+
+## 7. Check that we have 80%
+
+__Check that we have taken about 20% of the samples for model training__
+
+```{r}
+#if we divide the number of obs in train by the number in s, we should get 80%
+nrow(train)/nrow(s)
+
+```
+
+Now we have the data to fit a LDA
+```{r}
+#fit model lda
+lda <- lda(whr ~ temperature + precipitation, data=train)
+lda
+```
+
+## 8. Make a confusion matrix
+
+```{r}
+
+p <- predict(lda)
+
+
+tab <- table(train$whr,p$class)
+
+tab
+```
+
+## 9. Training Accuracy
+
+__Compute the fraction correctly classified__
+
+```{r}
+
+mean(train$whr == p$class)
+
+sum(diag(tab)) / sum(tab)
+```
+
+## 10. Testing Accuracy
+
+__Now compute the fraction correctly classified for the model testing data. (I get 0.592)__
+
+```{r}
+
+
+
+p.test <- predict(lda, test)
+
+
+tab.test <- table(test$whr,p.test$class)
+
+tab.test
+
+
+mean(test$whr == p.test$class)
+```
+
+
+## 11. Easy / Hard Predictions
+
+__What class seems to be easy to predict well, and what class not?__
+
+```{r}
+diag(tab.test) / rowSums(tab.test)
+```
+
+> It looks like conifer and desert seem to be easy to predict, while the remaning are difficult. Especially hardwood, herbaceous, and barren. 
+
+Question 12. Why might that be?
+
+> Good question. Perhaps it's hard to tell in the data collection between hardwood and conifer, herbacous and/desert. 
+
+
+Now predict to all of California. We use the predict function from the ‘raster’ package. Note that in this case the first argument is not the fitted model, but a Raster* object that has values for the predictors used to fit the model.
+
+```{r}
+pr <- predict(b, lda) # takes a little while
+plot(pr)
+```
+
+```{r}
+levs <- data.frame(ID=1:length(lda$lev), class=lda$lev)
+levels(pr) <- levs
+
+cols <- rev(c('orange', 'yellow', 'green', 'beige', 'dark green', 'black'))
+levelplot(pr, col.regions = cols)
+```
+
+```{r}
+v <- raster(file.path(mypath, 'calveg.grd'))
+
+m <- merge(levels(v)[[1]], levels(pr)[[1]], by.x='WHR10NAME', by.y='class', all.x=TRUE)
+v2 <- reclassify(v, m[,2:3])
+levels(v2) <- levels(pr)
+```
+
+```{r}
+s <- stack(v2, pr)
+names(s) <- c('observed', 'predicted')
+cols <- rev(c('beige', 'orange', 'green', 'yellow', 'dark green', 'black'))
+levelplot(s, col.regions=cols)
+```
+
+```{r}
+x <- mask(pr, v2, inverse=TRUE)
+levels(x) <- levels(pr)
+
+spplot(x, col.regions=cols)
+```
+
+
+## 13. Undisturbed vs. Actual
+
+__Compare the “undisturbed” vegetation to the actual vegetation. What vegetation type has seen most conversion to agriculture and urban areas (see code below)?__
+
+```{r}
+f <- freq(x, useNA='no')
+merge(levels(x), f, by=1)
+```
+
+> Looks like desert has the largest number of cells that have been converted to agriculture and urban area.
+
+Question 14. How would you (conceptually or via R) test whether this is different from what could be expected by chance?
+
+

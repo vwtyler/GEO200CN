@@ -1,0 +1,29 @@
+[general]
+creator=R package 'raster'
+created=2015-04-19 21:52:55
+[georeference]
+nrows=1270
+ncols=1321
+xmin=-636270
+ymin=-612690
+xmax=552630
+ymax=530310
+projection=+proj=aea +lat_1=34 +lat_2=40.5 +lat_0=0 +lon_0=-120 +x_0=0 +y_0=-4000000 +datum=NAD83 +units=m +no_defs
+[data]
+datatype=FLT8S
+byteorder=little
+nbands=1
+bandorder=BIL
+categorical=TRUE
+ratnames=ID:WHR10NAME
+rattypes=integer:factor
+ratvalues=1:2:3:4:5:6:7:8:9:10:Conifer:Shrub:Herbaceous:Wetland:Hardwood:Barren/Other:Urban:Agriculture:Water:Desert
+minvalue=1
+maxvalue=10
+nodatavalue=-1.7e+308
+[legend]
+legendtype=
+values=
+color=
+[description]
+layername=layer
