@@ -20,7 +20,6 @@ knitr::opts_chunk$set(echo = TRUE)
 library(raster)
 library(rgdal)
 library(MASS)
-library(dplyr)
 library(tidyverse)
 library(rasterVis)
 ```
@@ -52,7 +51,7 @@ y <- c('No','Yes','No','Yes','No','Yes',
 x <- c(32,89,50,49,80,56,40,70,72,76,32,58, 12, 15, 110, 120)
 
 #run a model, it doesn't work
-gm <- glm(y~x, family=binomial)
+#gm <- glm(y~x, family=binomial)
 ```
 
 How can you fix that? Please complete the code below
@@ -70,6 +69,8 @@ gm <- glm(y~x, family=binomial)
 #check the results
 summary(gm)
 ```
+
+****
 
 # Part 2 
 
@@ -92,6 +93,8 @@ __How many records do we have?__
 nrow(s)
 ```
 
+> There are `r nrow(s)` records in the sample.
+
 ## 3. Subset data
 
 __Remove the human dominated land cover (urban & agriculture), and also water and wetland from ‘s’ (because you would need additional predictors to adequately model these).__
@@ -100,7 +103,7 @@ __Remove the human dominated land cover (urban & agriculture), and also water an
 #get actual names of the land covers and their freq
 table(s$whr)
 
-#we will use filter() from the dplyr package
+#we will use filter() from the tidyverse package, subset also works
 s <- filter(s, whr != "Urban" & whr != "Agriculture" & whr != "Water" & whr != "Wetland")
 ```
 
@@ -112,6 +115,7 @@ __How many records do we have now?__
 nrow(s)
 ```
 
+> After subsetting, there are `r nrow(s)` records.
 
 To make a map of the locations of the records on top of a map of California, we need to get the boundary of CA, and tranform it to Teale Albers.
 
@@ -138,10 +142,12 @@ points(s)
 #we get a warning, why?
 ```
 
+****
 
 We did not collect climate data. But we have the locations of our samples, so we can extract that from other data sources. In this case we’ll use the the file ‘climate.grd’ (extracted from the WorldClim database). This file has multiple layers. In that case we can use the ‘brick’ function to create a multi-layered RasterBrick object.
 
 ```{r}
+#load in the .grd into a RasterBrick
 b <- brick(file.path(mypath, 'climate.grd'))
 b
 
@@ -154,7 +160,7 @@ __Use the ‘extract’ function to extract raster cell values for each point__
 
 ```{r}
 #extract, the y term must be in x, y format, so we exclude the third var in s
-e <- extract(b, s[,-3])
+e <- raster::extract(b, s[,-3])
 
 #bind the colums back (sort of like a join)
 s <- cbind(s, e)
@@ -165,8 +171,14 @@ head(s)
 
 Set 20% of the data apart to test the model.
 ```{r}
+
+#ensure consistent randomness
 set.seed(0)
+
+#get random number of rows
 i <- sample(nrow(s), 0.2 * nrow(s))
+
+#subset into two different data sets
 test <- s[i,]
 train <- s[-i,]
 ```
@@ -177,9 +189,11 @@ __Check that we have taken about 20% of the samples for model training__
 
 ```{r}
 #if we divide the number of obs in train by the number in s, we should get 80%
-nrow(train)/nrow(s)
+round(nrow(train)/nrow(s)*100)
 
 ```
+
+> `r round(nrow(train)/nrow(s)*100)`% of the original data is in the `train` object. 
 
 Now we have the data to fit a LDA
 ```{r}
@@ -191,12 +205,13 @@ lda
 ## 8. Make a confusion matrix
 
 ```{r}
-
+#create predictions from the lda model
 p <- predict(lda)
 
-
+#create a table of actuals (train) vs predicted (p)
 tab <- table(train$whr,p$class)
 
+#looks good
 tab
 ```
 
@@ -205,46 +220,51 @@ tab
 __Compute the fraction correctly classified__
 
 ```{r}
-
+#we can get the mean
 mean(train$whr == p$class)
 
+#or do the sum of the diag / the sum of the table
 sum(diag(tab)) / sum(tab)
 ```
+
+> The percent of correctly classified observations is `r round(sum(diag(tab))/sum(tab)*100)`%.
 
 ## 10. Testing Accuracy
 
 __Now compute the fraction correctly classified for the model testing data. (I get 0.592)__
 
 ```{r}
-
-
-
+#get new predictions from the OG model with the test observations
 p.test <- predict(lda, test)
 
-
+#make a new table with those data
 tab.test <- table(test$whr,p.test$class)
 
+#looks good
 tab.test
 
-
+#get the % correct
 mean(test$whr == p.test$class)
 ```
 
+> The percent of correctly classified observations is `r round(sum(diag(tab.test))/sum(tab.test)*100)`%.
 
 ## 11. Easy / Hard Predictions
 
 __What class seems to be easy to predict well, and what class not?__
 
 ```{r}
+#we can look at the diag and divide by the rowSums to get the accuracy for each type.
 diag(tab.test) / rowSums(tab.test)
 ```
 
 > It looks like conifer and desert seem to be easy to predict, while the remaning are difficult. Especially hardwood, herbaceous, and barren. 
 
-Question 12. Why might that be?
+## 12. Why might that be?
 
-> Good question. Perhaps it's hard to tell in the data collection between hardwood and conifer, herbacous and/desert. 
+> Perhaps it's hard to tell in the data collection. The spectral signatures for confier and desert could be more distinct than that of hardwood, herbaceous, and desert. 
 
+****
 
 Now predict to all of California. We use the predict function from the ‘raster’ package. Note that in this case the first argument is not the fitted model, but a Raster* object that has values for the predictors used to fit the model.
 
@@ -254,33 +274,57 @@ plot(pr)
 ```
 
 ```{r}
+#get levels from the lda data
 levs <- data.frame(ID=1:length(lda$lev), class=lda$lev)
+
+#reassign to the pr data
 levels(pr) <- levs
 
+#colors
 cols <- rev(c('orange', 'yellow', 'green', 'beige', 'dark green', 'black'))
+
+#map with color regions
 levelplot(pr, col.regions = cols)
 ```
 
 ```{r}
+#get veg grid data into raster
 v <- raster(file.path(mypath, 'calveg.grd'))
 
+#merge to get the levels in order
 m <- merge(levels(v)[[1]], levels(pr)[[1]], by.x='WHR10NAME', by.y='class', all.x=TRUE)
+
+#reclass the levels from v with the levels from the merge
 v2 <- reclassify(v, m[,2:3])
+
+#assign the levels from pr so everything matches
 levels(v2) <- levels(pr)
 ```
 
 ```{r}
+#create a stack with the actual data and predicted
 s <- stack(v2, pr)
+
+#name them
 names(s) <- c('observed', 'predicted')
+
+#colors and plot
 cols <- rev(c('beige', 'orange', 'green', 'yellow', 'dark green', 'black'))
 levelplot(s, col.regions=cols)
 ```
 
 ```{r}
+#create a mask from the observed and the actual
 x <- mask(pr, v2, inverse=TRUE)
+
+#fix levels
 levels(x) <- levels(pr)
 
-spplot(x, col.regions=cols)
+#get the state bnd
+state <- list("sp.polygons", ca)
+
+#plot
+spplot(x, col.regions=cols, sp.layout=state)
 ```
 
 
@@ -289,12 +333,18 @@ spplot(x, col.regions=cols)
 __Compare the “undisturbed” vegetation to the actual vegetation. What vegetation type has seen most conversion to agriculture and urban areas (see code below)?__
 
 ```{r}
+#get the freqencys from x
 f <- freq(x, useNA='no')
+
+#show me the levels!
 merge(levels(x), f, by=1)
 ```
 
-> Looks like desert has the largest number of cells that have been converted to agriculture and urban area.
+> Looks like desert has the largest number of predicted cells that have been converted to agriculture and urban areas.
 
-Question 14. How would you (conceptually or via R) test whether this is different from what could be expected by chance?
+## 14. Test by chance?
 
+__How would you (conceptually or via R) test whether this is different from what could be expected by chance?__
+
+> Create a random raster using the same classes and compare it to the observed distribution of classes?
 
