@@ -13,7 +13,7 @@ output:
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
-# Lab 7
+# Week 4, Part 1 (Lab 7)
 
 ## Libraries
 ```{r}
@@ -84,7 +84,7 @@ s <- read.csv(file.path(mypath, "samples.csv"), stringsAsFactors = F)
 head(s)
 ```
 
-## 2. How many records?
+## 2 How many records?
 
 __How many records do we have?__
 
@@ -95,7 +95,7 @@ nrow(s)
 
 > There are `r nrow(s)` records in the sample.
 
-## 3. Subset data
+## 3 Subset data
 
 __Remove the human dominated land cover (urban & agriculture), and also water and wetland from ‘s’ (because you would need additional predictors to adequately model these).__
 
@@ -107,7 +107,7 @@ table(s$whr)
 s <- filter(s, whr != "Urban" & whr != "Agriculture" & whr != "Water" & whr != "Wetland")
 ```
 
-## 4. How many records now?
+## 4 How many records now?
 
 __How many records do we have now?__
 
@@ -119,7 +119,7 @@ nrow(s)
 
 To make a map of the locations of the records on top of a map of California, we need to get the boundary of CA, and tranform it to Teale Albers.
 
-## 5. Finish the code below
+## 5 Finish the code below
 
 ```{r}
 
@@ -154,7 +154,7 @@ b
 plot(b)
 ```
 
-## 6. Extract Raster
+## 6 Extract Raster
 
 __Use the ‘extract’ function to extract raster cell values for each point__
 
@@ -183,7 +183,7 @@ test <- s[i,]
 train <- s[-i,]
 ```
 
-## 7. Check that we have 80%
+## 7 Check that we have 80%
 
 __Check that we have taken about 20% of the samples for model training__
 
@@ -202,7 +202,7 @@ lda <- lda(whr ~ temperature + precipitation, data=train)
 lda
 ```
 
-## 8. Make a confusion matrix
+## 8 Make a confusion matrix
 
 ```{r}
 #create predictions from the lda model
@@ -215,7 +215,7 @@ tab <- table(train$whr,p$class)
 tab
 ```
 
-## 9. Training Accuracy
+## 9 Training Accuracy
 
 __Compute the fraction correctly classified__
 
@@ -229,7 +229,7 @@ sum(diag(tab)) / sum(tab)
 
 > The percent of correctly classified observations is `r round(sum(diag(tab))/sum(tab)*100)`%.
 
-## 10. Testing Accuracy
+## 10 Testing Accuracy
 
 __Now compute the fraction correctly classified for the model testing data. (I get 0.592)__
 
@@ -249,7 +249,7 @@ mean(test$whr == p.test$class)
 
 > The percent of correctly classified observations is `r round(sum(diag(tab.test))/sum(tab.test)*100)`%.
 
-## 11. Easy / Hard Predictions
+## 11 Easy / Hard Predictions
 
 __What class seems to be easy to predict well, and what class not?__
 
@@ -262,7 +262,7 @@ diag(tab.test) / rowSums(tab.test)
 
 ## 12. Why might that be?
 
-> Perhaps it's hard to tell in the data collection. The spectral signatures for confier and desert could be more distinct than that of hardwood, herbaceous, and desert. 
+> Perhaps it's hard to tell in the data collection. The spectral signatures for confier and desert could be more distinct than that of hardwood, herbaceous, and desert. In addition, the desert is probably easiest to predict because of the percipitation data, as deserts don't get a lot of rain, being deserts and all.
 
 ****
 
@@ -328,7 +328,7 @@ spplot(x, col.regions=cols, sp.layout=state)
 ```
 
 
-## 13. Undisturbed vs. Actual
+## 13 Undisturbed vs. Actual
 
 __Compare the “undisturbed” vegetation to the actual vegetation. What vegetation type has seen most conversion to agriculture and urban areas (see code below)?__
 
@@ -342,9 +342,9 @@ merge(levels(x), f, by=1)
 
 > Looks like desert has the largest number of predicted cells that have been converted to agriculture and urban areas.
 
-## 14. Test by chance?
+## 14 Test by chance?
 
 __How would you (conceptually or via R) test whether this is different from what could be expected by chance?__
 
-> Create a random raster using the same classes and compare it to the observed distribution of classes?
+> Create many random raster distributions using the same classes and compare it to the observed distribution of classes.
 
