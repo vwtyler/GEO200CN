@@ -1,0 +1,411 @@
+---
+title: "Week 4-2 HW"
+author: "Tyler Jackson"
+date: "4/24/2019"
+output:
+  html_document:
+    theme: journal
+    toc: true
+    toc_float: true
+    toc_depth: 2
+---
+
+# Week 4 Part 2 Setup
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load Libraries
+```{r}
+library(rspatial)
+library(tidyverse)
+```
+
+## Setup
+```{r}
+#read in data from rspatial
+city <- sp_data("city")
+crime <- sp_data("crime.rds")
+
+#I don't think we need a wd path shortcut but just in case 
+mypath <- "/Users/tyler/Dropbox/_200CN/labs/week4-2/data/"
+```
+
+## Example Code
+
+Map the City and Crime Data
+```{r}
+#set the margins
+par(mai=c(0,0,1,0))
+
+#plot the polygons
+plot(city, col='light blue', main = "City of Davis Crime")
+
+#plot the points
+points(crime, col='red', cex=.5, pch='+')
+```
+
+Get xy cooridinates and remove dupes
+```{r}
+#pull coords
+xy <- coordinates(crime)
+
+#isolate unique values
+xy <- unique(xy)
+
+#check it out
+head(xy)
+```
+
+Get Density to Answer Question 1
+```{r, message=FALSE}
+CityArea <- area(city)
+dens <- nrow(xy) / CityArea
+``` 
+
+# Questions
+## 1a Units
+
+__What is the unit of ‘dens’?__
+
+```{r}
+crs(city)
+```
+
+> Given that the crs of the city data frame has units in us-ft, the unit of `dens` would be ft^2^.
+
+## 1b Convert to Km
+
+__What is the number of crimes per km^2^?__
+
+```{r}
+#transform into meters CRS
+city.m <- spTransform(city, CRSobj = "+proj=lcc +lat_1=38.33333333333334 +lat_2=39.83333333333334 +lat_0=37.66666666666666 +lon_0=-122 +x_0=2000000 +y_0=500000.0000000001 +datum=NAD83 +units=km +no_defs +ellps=GRS80 +towgs84=0,0,0")
+crime.m <- spTransform(crime, CRSobj = "+proj=lcc +lat_1=38.33333333333334 +lat_2=39.83333333333334 +lat_0=37.66666666666666 +lon_0=-122 +x_0=2000000 +y_0=500000.0000000001 +datum=NAD83 +units=km +no_defs +ellps=GRS80 +towgs84=0,0,0")
+```
+
+Plot to make sure it works ok?
+```{r}
+#set the margins
+par(mai=c(0,0,1,0))
+
+#plot the polygons
+plot(city.m, col='light blue', main = "City of Davis Crime")
+
+#plot the points
+points(crime.m, col='red', cex=.5, pch='+')
+```
+
+Get xy and isolate
+```{r}
+#pull coords
+xy.m <- coordinates(crime.m)
+
+#isolate unique values
+xy.m <- unique(xy.m)
+
+#check it out
+head(xy.m)
+```
+
+Get denisty
+```{r}
+CityArea.m <- area(city.m)
+dens.m <- nrow(xy.m) / CityArea.m
+
+```
+
+> The number of crimes per km^2^ is `r round(dens.m, 2)`.
+
+***
+
+Move on to Question 2. Some of the graphs from the example code are useful for answering the question so I'm including it here.
+
+
+To compute  quadrat counts (as on p.127-130), I first create quadrats (a RasterLayer). I get the extent for the raster from the city polygon, and then assign an an arbitrary resolution of 1000. 
+
+
+```{r}
+#create a raster
+r <- raster(city) 
+
+#set resolution, note: this is arbitrary
+#note from robert: (In real life one should always try a range of resolutions, I think)
+#he thinks?
+res(r) <- 1000
+
+#look good?
+r
+``` 
+
+To find the cells that are in the city, and for easy display, I create polygons from the RasterLayer.
+
+```{r}
+#get cells in the city
+r <- rasterize(city, r)
+
+par(mar=c(5, 4, 4, 2) + 0.1)
+plot(r, main = "Davis Crimes in Quadrats", legend = F)
+#get polygons to see the squares
+quads <- as(r, 'SpatialPolygons')
+
+#plot them
+plot(quads, add=TRUE)
+
+#plot crime points
+points(crime, col='red', cex=.5)
+``` 
+
+The number of events in each quadrat can be counted using the 'rasterize' function. That function can be used to summarize the number of points within each cell, but also to compute statistics based on the 'marks' (attributes). For example we could compute the number of different crime types) by changing the 'fun' argument to another function (see ?rasterize).
+
+```{r}
+#get counts in each quadrat
+nc <- rasterize(coordinates(crime), r, fun='count', background=0)
+
+
+plot(nc, main = "Crimes per Quadrat")
+plot(city, add=TRUE)
+``` 
+
+`nc` has crime counts. As we only have data for the city, the areas outside of the city need to be excluded. We can do that with the mask function (see ?mask).
+
+```{r}
+#mask by the city to get rid of extra crime counts
+ncrimes <- mask(nc, r)
+plot(ncrimes, main = "Crimes per Quadrat in Davis")
+plot(city, add=TRUE)
+``` 
+
+That looks better. Now let's get the frequencies.
+
+```{r}
+#get frequencies
+f <- freq(ncrimes, useNA='no')
+head(f)
+plot(f, pch=20, main = "Freq of the Number of Quadrats \n by the Number of Crimes")
+``` 
+
+
+Compute the average number of cases per quadrat.
+```{r}
+# number of quadrats
+quadrats <- sum(f[,2])
+# number of cases
+cases <- sum(f[,1] * f[,2])
+
+#get the mean
+mu <- cases / quadrats
+mu
+``` 
+
+And create a table like Table 5.1 on page 130
+```{r}
+#create table for variance calculation
+ff <- data.frame(f)
+
+#K is events, X is quadrats
+colnames(ff) <- c('K', 'X')
+
+#difference between the mean and the observed
+ff$Kmu <- ff$K - mu
+
+#squared difference
+ff$Kmu2 <- ff$Kmu^2
+
+#squared diff times the number of quadrats
+ff$XKmu2 <- ff$Kmu2 * ff$X
+head(ff)
+``` 
+
+The observed variance s^2^ is
+```{r}
+#get variance
+s2 <- sum(ff$XKmu2) / (sum(ff$X)-1)
+s2
+``` 
+
+And the VMR is
+```{r}
+
+#variance over mean
+VMR <- s2 / mu 
+VMR
+``` 
+
+
+## 2 Decipher VMR
+
+__What does this VMR score tell us about the point pattern?__
+
+> This is the ratio of variance to the mean. The high score of `r round(VMR, 2)` indicates a high level of variance from the observed mean. This could indicated high levels of clustering in a few quadrants. Looking at the frequency table we can see that there are many quadrats with little to no crimes, but few with some to a lot of crime, indicating some level of variability or clustering of crime in the quadrats, such as in the downtown area by looking at the map.
+
+## 3 Decipher the G & F plot
+
+__What does this plot suggest about the point pattern?__
+
+> The G line being above the expected line indicates some level of clustering, as when d increases on the low end, G(d) increases as the observed points are close together. The F line is below the expected for the same reason. In a uniform distribution, F(d) would increase rapidly, but in clustered data, random points that F uses are farther from actual data, causing F(d) to not increase rapidly on the low-end of d, but more rapidly as d gets to a bigger margin.
+
+## 4 Create a Random Pattern
+
+__Create a single random pattern of events for the city, with the same number of events as the crime data (object xy). Use function ‘spsample’__
+
+```{r}
+set.seed(0)
+crime.rnd <- spsample(city, n=nrow(xy), type = "random")
+crime.rnd
+```
+
+## 5 Plot G for Real, Random and Expected
+
+__Compute the G function for the observed data, and plot it on a single plot, together with the G function for the theoretical expectation (formula 5.12).__
+
+G function for Real
+```{r}
+#create dist matrix
+d <- dist(xy) 
+
+#coerce as matrix
+dm <- as.matrix(d)
+
+#give the diag NA values
+diag(dm) <- NA
+```
+
+```{r}
+#get minimum dist to each event
+dmin <- apply(dm, 1, min, na.rm=TRUE)
+```
+
+```{r}
+# get the unique distances (for the x-axis)
+distance <- sort(unique(round(dmin)))
+# compute how many cases there with distances smaller that each x
+Gd <- sapply(distance, function(x) sum(dmin < x)) 
+# normalize to get values between 0 and 1
+Gd <- Gd / length(dmin)
+```
+
+G function for Random
+```{r}
+xy.rnd <- coordinates(crime.rnd)
+#create dist matrix
+d.rnd <- dist(xy.rnd) 
+
+#coerce as matrix
+dm.rnd <- as.matrix(d.rnd)
+
+#give the diag NA values
+diag(dm.rnd) <- NA
+```
+
+```{r}
+#get minimum dist to each event
+dmin.rnd <- apply(dm.rnd, 1, min, na.rm=TRUE)
+```
+
+```{r}
+# get the unique distances (for the x-axis)
+distance.rnd <- sort(unique(round(dmin.rnd)))
+# compute how many cases there with distances smaller that each x
+Gd.rnd <- sapply(distance.rnd, function(x) sum(dmin.rnd < x)) 
+# normalize to get values between 0 and 1
+Gd.rnd <- Gd.rnd / length(dmin.rnd)
+```
+
+Expected
+```{r}
+ef <- function(d, lambda) {
+  E <- 1 - exp(-1 * lambda * pi * d^2)
+}
+expected <- ef(0:2000, dens)
+```
+
+Plots
+```{r}
+#Set up plot
+plot(distance, Gd, type='l', lwd=2, col='red', las=1,
+    ylab='F(d) or G(d)', xlab='Distance', yaxs="i", xaxs="i")
+#add lines
+lines(distance.rnd, Gd.rnd, lwd=2, col='blue')
+lines(0:2000, expected, lwd=2)
+#add legend
+legend(1200, .3,
+   c(expression(italic("G")["d"]), expression(italic("G")["d random"]), 'expected'),
+   lty=1, col=c('red', 'blue', 'black'), lwd=2, bty="n")
+```
+
+## 6 Monte Carlo Siumlation
+
+__(Difficult!) Do a Monte Carlo simulation (page 149) to see if the ‘mean nearest distance’ of the observed crime data is significantly different from a random pattern. Use a ‘for loop’. First write ‘pseudo-code’. That is, say in natural language what should happen. Then try to write R code that implements this.__
+
+Psuedo-code:
+
+* Generate random xy coordinate samples  
+* calculate the mean nearest dist  
+* repeat 1000 times  
+* bind together in dataframe  
+* create histogram of mean nearest dist  
+* compare to observed  
+
+Function to calculate a random mean nearest distance using the data given above. It gets n number of random observations from the city boundings, then finds the distances, the minimum distance for each point, and calculates the mean:
+```{r}
+#` calculates the mean minimum distance for a random generated sample
+#` uses the above methods and data to do so
+rmean <- function() {
+    r <- spsample(city, n=nrow(xy), type = "random") #random sample
+    c <- coordinates(r) #get coords
+    d <- dist(c) #get distances
+    m <- as.matrix(d) #coerce as matrix
+    diag(m) <- NA #fill na's for diag
+    md <- apply(m, 1, min, na.rm=TRUE) #get min distances
+    mdm <- mean(md) #get mean min dist
+    return(mdm)
+}
+```
+
+'Monte Carlo' Sampling:
+```{r}
+#set random seed
+set.seed(20)
+
+#create empty df for use in the loop
+mc.test <- data.frame()
+
+#for loop that runs 1000 times for a max p-value of 1/1000
+#takes a while, this is running 1000 simulations
+for (i in 1:1000) {
+  rsamp <- rmean()
+  mc.test <- rbind(mc.test, rsamp)
+}
+
+#rename the column
+colnames(mc.test) <- "rmdist"
+
+```
+
+Observed Mean Minimum Distance:
+```{r}
+#get mean min dist of observed dmin
+mdmin <- mean(dmin)
+```
+
+Visual Exploration:
+```{r}
+par(mfrow=c(2,1))
+
+#histogram for just the random
+hist(mc.test$rmdist, main = "\n Random", xlab = "Mean Minimum Distance")
+
+#get a histogram for the random and observed
+hist(mc.test$rmdist, main = "\n Random & Observed", xlab = "Mean Minimum Distance", xlim = c(150, 260))
+
+hist(mdmin, breaks = c(166, 168), labels = "Observed", add = TRUE)
+```
+
+> From the second histogram, we can see that the observed value (`r round(mdmin, 2)`) falls well outside of the random distribution of mean minimum distances. Given that there are 1000 random observations, the p-value of our observed mean minimum distance would be 1/1000 or `r 1/1000` indicating a significant difference from the random observations.
+
+## 7 Decipher Spatial Kolmogorov-Smirnov
+
+__Why is the result surprising, or not surprising?__
+
+> The Spatial Kolmogorov-Smirnov test gave low p-values for both arson and drunk in public crimes. It was lower for drunk in public, perhaps in part due to the higher numbers of observations for drunk in public violations. It's hard to imagine any real strong predictive power for the arson crimes due to the low number of observations and spread in the data. Overall, this is not surprising, since it follows logically that higher population would lead to more types of crime. There are other causal factors not being considered.
