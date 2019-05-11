@@ -1,0 +1,859 @@
+---
+title: "Week 6 HW"
+author: "Tyler Jackson"
+date: "5/6/2019"
+output:
+  html_document:
+    theme: journal
+    toc: true
+    toc_float: true
+    toc_depth: 2
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Setup
+
+Libraries
+```{r}
+library(rspatial)
+library(raster)
+library(sp)
+library(spdep)
+library(spgwr)
+library(gstat)
+library(fields)
+library(dismo)
+library(rgdal)
+```
+
+# Monday
+
+California House Price Data
+
+We will use house prices data from the 1990 census, taken from "Pace, R.K. and R. Barry, 1997. Sparse Spatial Autoregressions. Statistics and Probability Letters 33: 291-297."
+
+```{r}
+#load housing data from rspatial
+houses <- sp_data("houses1990.csv")
+#load county data for mapping
+counties <- sp_data('counties')
+
+#check it out
+dim(houses)
+head(houses)
+```
+
+Each record represents a census "blockgroup". The longitude and latitude of the centroids of each block group are available. We can use that to make a map and we can also use these to link the data to other spatial data. For example to get county-membership of each block group. To do that, let's first turn this into a SpatialPointsDataFrame to find out to which county each point belongs.
+
+```{r}
+#use coordinates to turn into an sp object
+#since houses df already has lon/lat this is pretty easy
+coordinates(houses) <- ~longitude+latitude
+```
+
+Now get the county boundaries and assign CRS of the houses data matches that of the counties (because they are both in longitude/latitude!).
+
+```{r}
+#match our crs in the new SP object to the counties
+crs(houses) <- crs(counties)
+```
+
+Do a spatial query (points in polygon)
+```{r}
+#get which county each hous is in by row
+cnty <- over(houses, counties)
+head(cnty)
+```
+
+Summarize
+
+We can summarize the data by county. First combine the extracted county data with the original data. 
+
+```{r}
+#join the county info to the houses df
+hd <- cbind(data.frame(houses), cnty)
+```
+
+Compute the population by county
+```{r}
+#this gets the population and sums it by NAME, outputs an array
+totpop <- tapply(hd$population, hd$NAME, sum)
+head(totpop)
+```
+
+Income is harder because we have the median household income by blockgroup. But it can be approximated by first computing total income by blockgroup, summing that, and dividing that by the total number of households.
+
+```{r}
+# total income
+hd$suminc <- hd$income * hd$households
+
+# now use aggregate (similar to tapply), outputs a df
+csum <- aggregate(hd[, c('suminc', 'households')], list(hd$NAME), sum)
+
+# divide total income by number of households
+csum$income <- 10000 * csum$suminc / csum$households
+
+# sort
+csum <- csum[order(csum$income), ]
+head(csum)
+tail(csum)
+```
+
+
+Regression
+
+Before we make a regression model, let's first add some new variables that we might use, and then see if we can build a regression model with house price as dependent variable. The authors of the paper used a lot of log tranforms, so you can also try that.
+
+
+```{r}
+#create rate variables
+hd$roomhead <- hd$rooms / hd$population
+hd$bedroomhead <- hd$bedrooms / hd$population
+hd$hhsize <- hd$population / hd$households
+```
+
+Ordinary least squares regression:
+
+```{r}
+# OLS
+m <- glm( houseValue ~ income + houseAge + roomhead + bedroomhead + population, data=hd)
+
+#get the summary
+summary(m)
+
+#get coefficients
+coefficients(m)
+```
+
+Geographicaly Weighted Regression
+
+By county
+
+Of course we could make the model more complex, with e.g. squared income, and interactions.
+But let's see if we can do Geographically Weighted regression. One approach could be to use counties.
+
+First I remove records that were outside the county boundaries
+```{r}
+#exclue NA's in NAME
+hd2 <- hd[!is.na(hd$NAME), ]
+```
+
+Then I write a function to get what I want from the regression (the coefficients in this case)
+
+```{r}
+#` function that pulls coeffecients 
+#` for a glm using data from county 'x'
+regfun <- function(x)  {
+  dat <- hd2[hd2$NAME == x, ] #get county 'x' data
+  m <- glm(houseValue~income+houseAge+roomhead+bedroomhead+population, data=dat) #run regression
+  coefficients(m) #output the coefficients
+}
+```
+
+And now run this for all counties using sapply:
+```{r}
+#get unique county names
+countynames <- unique(hd2$NAME)
+
+#pass them using sapply into the regfun
+#note: outputs a matrix
+res <- sapply(countynames, regfun)
+```
+
+
+Plot of a single coefficient
+```{r, gwr3, fig.height=10}
+#dotchart of the income variable
+dotchart(sort(res['income', ]), cex=0.65, main = "Income Coefficient By County")
+```
+
+There clearly is variation in the coefficient ($beta$) for income. How does this look on a map?
+
+First make a data.frame of the results
+```{r}
+#gotta make a df cus we have a matrix, ya know?
+resdf <- data.frame(NAME=colnames(res), t(res)) #remember t = transpose
+
+#looks good
+head(resdf)
+```
+
+Fix the counties object. There are too many counties because of the presence of islands. I first aggregate ('dissolve' in GIS-speak') the counties such that a single county becomes a single (multi-)polygon.
+
+```{r}
+#check dimension
+dim(counties)
+
+#we have multiple polygons that have the same name, let's dissolve them
+dcounties <- aggregate(counties, by='NAME')
+
+#looks like we go down to 58 counties
+dim(dcounties)
+```
+
+Now we can merge this SpatialPolygonsDataFrame with data.frame with the regression results. 
+
+```{r, gwr5}
+#cool, merging
+cnres <- merge(dcounties, resdf, by='NAME')
+
+#map it out
+spplot(cnres, 'income', main = "Housing Value by Income Coefficients by County")
+```
+
+To show all parameters in a 'conditioning plot', we need to first scale the values to get similar ranges.
+
+```{r, gwr6}
+# a copy of the data
+cnres2 <- cnres
+
+# scale all variables, except the first one (county name)
+# assigning values to a "@data" slot is risky, but (I think) OK here
+cnres2@data = data.frame(scale(data.frame(cnres)[, -1]))
+
+#plots all variables
+spplot(cnres2)
+```
+
+
+Is this just random noise, or is there spatial autocorrelation?
+
+```{r, gwr10}
+#check out SA
+
+#create nb object from cnres
+nb <- poly2nb(cnres)
+
+#create listw for moran.test
+lw <- nb2listw(nb)
+
+#moran's for income and room head
+moran.test(cnres$income, lw)
+moran.test(cnres$roomhead, lw, na.action=na.omit)
+```
+
+Doesn't look like spatial autocorrelation...
+
+By grid cell
+
+An alternative approach would be to compute a model for grid cells. 
+Let's use the 'Teale Albers' projection (often used when mapping the entire state of California). 
+
+```{r}
+#proj definition
+TA <- CRS("+proj=aea +lat_1=34 +lat_2=40.5 +lat_0=0 +lon_0=-120 +x_0=0 
+          +y_0=-4000000 +datum=NAD83 +units=m +no_defs +ellps=GRS80
+          +towgs84=0,0,0")
+
+#transform counties in TA
+countiesTA <- spTransform(counties, TA)
+```
+
+Create a RasteLayer using the extent of the counties, and setting an arbitrary resolution of 50 by 50 km cells
+```{r}
+#create a raster for raster operations
+r <- raster(countiesTA)
+
+#set resolution
+res(r) <- 50000
+```
+
+Get the xy coordinates for each raster cell:
+```{r}
+#xyFromCell gets lat and lon from the raster
+xy <- xyFromCell(r, 1:ncell(r))
+```
+
+For each cell, we need to select a number of observations, let's say within 50 km of the center of each cell (thus the data that are used in different cells overlap). And let's require at least 50 observations to do a regression.
+
+First transform the houses data to Teale-Albers
+```{r}
+#spTransform those houses
+housesTA <- spTransform(houses, TA)
+
+#get coords
+crds <- coordinates(housesTA)
+```
+
+Set up a new regression function.
+```{r}
+#` function takes d and does a regression
+#` different from above is d is the cells within a bandwidth while above we use a county
+regfun2 <- function(d)  {
+ m <- glm(houseValue~income+houseAge+roomhead+bedroomhead+population, data=d)
+ coefficients(m)
+}
+```
+
+Run the model for al cells if there are at least 50 observations within a radius of 50 km.
+```{r}
+#creating a list
+res <- list()
+
+#for all the coords
+for (i in 1:nrow(xy)) {
+	d <- sqrt((xy[i,1]-crds[,1])^2 + (xy[i,2]-crds[,2])^2) #sqrt (Xr - Xh)^2 + (Yr -Yh)^2v or the distance from each house to each raster center
+	j <- which(d < 50000) #get values less than 50 km
+	if (length(j) > 49) { #make sure we have at least 50 cels
+		d <- hd[j,] #get the info for j
+		res[[i]] <- regfun2(d) #run our function
+	} else { #if less than 50, na
+		res[[i]] <- NA
+	}
+}
+```
+
+For each cell get the income coefficient:
+```{r}
+#extract income
+inc <- sapply(res, function(x) x['income'])
+```
+
+Use these values in a RasterLayer
+```{r, gwr20}
+#get values
+rinc <- setValues(r, inc)
+
+#plot income value
+plot(rinc, main = "Housing Value ~ Income Homebrew")
+plot(countiesTA, add=T)
+
+#get moran
+Moran(rinc)
+```
+
+So that was a lot of 'home-brew-GWR'. 
+
+## 1 Strength and Weakness
+
+__Can you comment on weaknesses (and perhaps strengths) of the approaches I have shown?__ 
+
+> By County: County level data is including counties that have little housing and big area with low population, which probably gives an incomplete picture of the data, but the unit of analysis is similar, ie, county by county. 
+
+> By Raster: The raster cell analysis gives an arbitrary unit of measurement but returns a finer level of detail that allows for a more nuanced measurement that could be meaningful depending on how you define your unit of analysis. 
+
+*****
+
+GWR functions
+
+Now use the spgwr package (and the the `gwr` function) to fit the model. You can do this with all data, as long as you supply and argument `fit.points` (to avoid estimating a model for each observation point. You can use a raster similar to the one I used above (perhaps disaggregate with a factor 2 first).
+
+This is how you can get the points to use:
+
+Create a RasterLayer with the correct extent
+```{r}
+#create a raster we did this above
+r <- raster(countiesTA)
+```
+
+Set to a desired resolution. I choose 25 km
+```{r}
+#why is this different than above?
+res(r) <- 25000
+```
+
+I only want cells inside of CA, so I add some more steps.
+```{r}
+#rasterize
+ca <- rasterize(countiesTA, r)
+```
+
+Extract the coordinates that are not `NA`.
+
+```{r}
+#get fitpoints
+fitpoints <- rasterToPoints(ca)
+```
+
+I don't want the third column
+```{r}
+#get rid of column 3
+fitpoints <- fitpoints[,-3]
+```
+
+```{r}
+#this takes forever don't do it
+# bw <- gwr.sel(houseValue ~ income + houseAge + rooms + bedrooms + population, data = housesTA, method = "aic", verbose = FALSE)
+```
+
+Now specify the model
+
+```{r}
+#gwr uses a bandwidth, which can be determined using gwr.sel but that function is extremely computationally demanding, so i used 50km 
+gwr.model <- gwr(houseValue ~ income + houseAge + rooms + bedrooms + population,
+data = housesTA, bandwidth = 50000, fit.points = fitpoints)
+```
+
+`gwr` returns a list-like object that includes (as first element) a `SpatialPointsDataFrame` that has the model coefficients. Plot these using `spplot`, and after that, transfer them to a `RasterBrick` object.
+
+To extract the SpatialPointsDataFrame:
+
+```{r}
+#plot as an sp
+#get sp data from the model
+sp <- gwr.model$SDF
+
+#rename the (Intercept)
+names(sp)[2] <- "intercept"
+
+#plot
+spplot(sp)
+
+```
+
+To reconnect these values to the raster structure (etc.)
+
+```{r}
+#get cells from the fitpoints
+cells <- cellFromXY(r, fitpoints)
+
+#turn data in matrix
+dd <- as.matrix(data.frame(sp))
+
+#stack it like a brick
+b <- brick(r, values=FALSE, nl=ncol(dd))
+
+#fill it with the matrix data
+b[cells] <- dd
+
+#put in col names
+names(b) <- colnames(dd)
+
+#plot
+plot(b$income, main = "House Value ~ Income, GWR model")
+
+#get morans
+Moran(b$income)
+```
+
+## 2 Homebrew vs SPGWR
+
+__Briefly comment on the results and the differences (if any) with the two home-brew examples.__
+
+> Homebrew - The homebrew for housing value ~ income shows much less smoothing, and does not cover areas in the north and in the eastern part of the state, likely due to no data in those areas that don't have much population. There is some indication of positive spatial autocorrelation, ~0.33. 
+
+> Spgwr - The spgwr results show a much smoother map, with areas that were previously not covered in the homebrew showing low to negative values. Here we get a picture that probably looks closer to what population looks like in California. The Moran's I is much higher, ~0.84, indicating high levels of spatial autocorrelation, which can be seen in the map. 
+
+****
+# Wednesday
+
+Rainfall data
+
+Get percip data
+```{r}
+#it's in the rspatial package
+d <- sp_data('precipitation') 
+head(d)
+```
+
+Compute Annual
+```{r}
+#sum monthly data
+d$prec <- rowSums(d[, c(6:17)])
+```
+
+```{r}
+#make into sp points
+dsp <- SpatialPoints(d[,4:3], proj4string=CRS("+proj=longlat +datum=NAD83"))
+
+#add in the data frame
+dsp <- SpatialPointsDataFrame(dsp, d)
+
+#county data
+CA <- sp_data("counties")
+
+#Teale Albers transformations
+dta <- spTransform(dsp, TA)
+cata <- spTransform(CA, TA)
+```
+
+RMSE Function
+```{r}
+#` gets the root mean squared error
+#` @observed are observed values
+#` @predicted are predicted values
+RMSE <- function(observed, predicted) {
+  sqrt(mean((predicted - observed)^2, na.rm=TRUE))
+} 
+```
+
+```{r}
+#this is the null RMSE for precip data
+null <- RMSE(mean(dsp$prec), dsp$prec)
+null
+```
+
+5-fold cross validation
+```{r}
+#ensure replicatable randomness with set seet
+set.seed(5132015)
+
+#get a random assigned group for each row number in dta, k=5 is default
+kf <- kfold(nrow(dta))
+
+#create a vector with 5 NA's, will populate later
+rmse <- rep(NA, 5)
+
+#for loop that runs 5 times, k = 1 through 5
+for (k in 1:5) {
+  test <- dta[kf == k, ] #get test data for each k
+  train <- dta[kf != k, ] #get training data for each k
+  v <- voronoi(train) #get a nearest neighbor polygons for the training
+  p <- extract(v, test) #extract test neightbors from the train
+  rmse[k] <- RMSE(test$prec, p$prec) #get a RMSE for each k
+}
+
+rmse #show rmse for each k-fold group
+mean(rmse) #get the mean error of the group
+1 - (mean(rmse) / null) #how do the errors compare, values greater than 0 represent a decrease in error compared to the null, while 0 means the same error, while negative would be an increase in error
+```
+
+## 1: Chunk Talk
+
+__Describe what each step in the code chunk above does__
+
+> See comments in the chunk above.
+
+## 2: Compare Models
+
+__How does the proximity-polygon approach compare to the NULL model?__
+
+> Given that the difference in our error represent a `r round(100*(1 - (mean(rmse) / null)))`% reduction in error, the proximity polygon approach performs better than the NULL model. As the NULL overgeneralizes precipitation data for CA.
+
+##  3: Proximity Polygon Use
+
+__You would not typically use proximty polygons for rainfall data. For what kind of data would you use them?__
+
+> Categorical data, for example soil data.
+
+****
+
+IDW
+
+```{r}
+#get CA border
+ca <- aggregate(cata)
+
+#get only voroni polygons in the border
+vca <- intersect(v, ca)
+
+#create a raster
+r <- raster(cata, res=10000)
+
+#fill with the precip data from voroni
+vr <- rasterize(vca, r, 'prec')
+
+#run model
+gs <- gstat(formula=prec~1, locations=dta)
+
+#idw interpolation
+idw <- interpolate(r, gs)
+
+#get only CA
+idwr <- mask(idw, vr)
+plot(idwr, main = "California Precipitation IDW Interpolation")
+```
+
+## 4: Artifacts
+
+__IDW generated rasters tend to have a noticeable artifact. What is that?__
+
+> Sudden low or high points on the map (artifacts) are caused by areas where there may be only one or two values, especially in this case in areas where rainfall may be zero. The IDW doesn't provide a smoothing because of this. 
+
+```{r}
+rmse <- rep(NA, 5) #get an empty vector
+for (k in 1:5) { #k folds five
+  test <- dta[kf == k, ] #set aside test data
+  train <- dta[kf != k, ] #set aside train data
+  gs <- gstat(formula=prec~1, locations=train) #run model
+  p <- predict(gs, test) #get predictions
+  rmse[k] <- RMSE(test$prec, p$var1.pred) #calculate rmse
+}
+
+rmse
+mean(rmse) #get mean of rmse across folds
+1 - (mean(rmse) / null) #compare it to the null
+```
+
+## 5: IDW Map
+
+__Inspect the arguments used for and make a map of the IDW model below. What other name could you give to this method (IDW with these parameters)? Why?__
+
+> Commented the arguments below.
+
+```{r}
+gs2 <- gstat(formula=prec~1, #prec~1 calculated the mean
+             locations=dta, #locations in all dta
+             nmax=1, #max near observations that will be used in the kriging prediction will be 1 
+             set=list(idp=1)) #sets exponent of inverse relationship to be 1
+```
+
+> This looks like a voroni polygons prediction or nearest neightbor. Since the nmax is 1 and the exponent is 1, it takes one neighbor and makes the calculation.
+
+```{r}
+#idw
+idw2 <- interpolate(r, gs2)
+#mask
+idwr2 <- mask(idw2, vr)
+
+plot(idwr2, main = "Precipitation, Nearest Neighbor Polygons")
+```
+
+****
+Air Quality Data
+```{r}
+#get airquality data
+x <- sp_data("airqual")
+
+#make variable readable
+x$OZDLYAV <- x$OZDLYAV * 1000
+```
+
+```{r}
+#make spatial 
+coordinates(x) <- ~LONGITUDE + LATITUDE
+
+#long lat projection
+proj4string(x) <- CRS('+proj=longlat +datum=NAD83')
+
+#teale albers with KM instead of M
+TA <- CRS("+proj=aea +lat_1=34 +lat_2=40.5 +lat_0=0 +lon_0=-120 +x_0=0
++y_0=-4000000 +datum=NAD83 +units=km +ellps=GRS80")
+
+#TA transformation
+aq <- spTransform(x, TA)
+```
+
+```{r}
+#CA counties
+cageo <- sp_data('counties.rds')
+
+#xform into Teale Albers KM
+ca <- spTransform(cageo, TA)
+
+#raster it
+r <- raster(ca)
+
+#set res
+res(r) <- 10  # 10 km if your CRS's units are in km
+
+#make grid
+g <- as(r, 'SpatialGrid')
+```
+
+
+```{r}
+#get gstat model
+gs <- gstat(formula=OZDLYAV~1, locations=aq)
+
+#get variogram 
+v <- variogram(gs, width=20)
+plot(v, main = "Variogram for AQ DATA")
+
+#fit a variogram to model 
+fve <- fit.variogram(v, vgm(85, "Exp", 75, 20))
+
+#looks good
+fve
+```
+
+Kriging
+
+```{r}
+#new gstat model using our variogram
+k <- gstat(formula=OZDLYAV~1, locations=aq, model=fve)
+# predicted values
+kp <- predict(k, g)
+
+#plot
+spplot(kp)
+
+#neat we have pred. and variance
+ok <- brick(kp)
+
+#mask 
+ok <- mask(ok, ca)
+
+#rename
+names(ok) <- c('prediction', 'variance')
+
+plot(ok) 
+```
+
+IDW
+```{r}
+#basic IDW approach
+idm <- gstat(formula=OZDLYAV~1, locations=aq)
+
+#idw interpolation
+idp <- interpolate(r, idm)
+
+#mask
+idp <- mask(idp, ca)
+
+plot(idp, main = "CA Air Quality, IDW Interpolation")
+```
+
+```{r}
+#` gets RMSE based on test and train data from aq and from a fit based on idp
+f1 <- function(x, test, train) {
+  nmx <- x[1]
+  idp <- x[2]
+  if (nmx < 1) return(Inf)
+  if (idp < .001) return(Inf)
+  m <- gstat(formula=OZDLYAV~1, locations=train, nmax=nmx, set=list(idp=idp))
+  p <- predict(m, newdata=test, debug.level=0)$var1.pred
+  RMSE(test$OZDLYAV, p)
+}
+```
+
+```{r}
+#make replicable with consistency
+set.seed(20150518) 
+
+#sample from aq to get test / train
+i <- sample(nrow(aq), 0.2 * nrow(aq))
+tst <- aq[i,] #test data
+trn <- aq[-i,] #training data
+
+#get the optimum (lowest)  values from our function
+opt <- optim(c(8, .5), f1, test=tst, train=trn)
+opt
+```
+
+```{r}
+#new model using our optimum parameters
+m <- gstat(formula=OZDLYAV~1, locations=aq, nmax=opt$par[1], set=list(idp=opt$par[2]))
+
+#idw interpolataion
+idw <- interpolate(r, m)
+
+#mask and plot
+idw <- mask(idw, ca)
+plot(idw, main = "CA Airquality, Optimized IDW interpolation")
+```
+
+```{r}
+#Thin plate spline model
+m <- Tps(coordinates(aq), aq$OZDLYAV)
+
+#tps interpolation
+tps <- interpolate(r, m)
+
+#mask and plot
+tps <- mask(tps, idw)
+plot(tps, main = "CA Airquality, Thin Plate Spline interpolation")
+```
+
+K-folding and RMSE Calculation
+```{r}
+nfolds <- 5 #5-fold crossvalidation
+k <- kfold(aq, nfolds) #get k number of groups for aq data
+ensrmse <- tpsrmse <- krigrmse <- idwrmse <- rep(NA, 5) #empty vectors
+for (i in 1:nfolds) { #loop
+  test <- aq[k!=i,] #test  (not the k group)
+  train <- aq[k==i,] #train (the k group)
+  m <- gstat(formula=OZDLYAV~1, locations=train, nmax=opt$par[1], set=list(idp=opt$par[2])) #idw optimum model
+  p1 <- predict(m, newdata=test, debug.level=0)$var1.pred #idw prediction
+  idwrmse[i] <-  RMSE(test$OZDLYAV, p1) #get RMSE
+  m <- gstat(formula=OZDLYAV~1, locations=train, model=fve) #ordinary krig with the fvi variogram
+  p2 <- predict(m, newdata=test, debug.level=0)$var1.pred #get OK predictions
+  krigrmse[i] <-  RMSE(test$OZDLYAV, p2) #get RMSE
+  m <- Tps(coordinates(train), train$OZDLYAV) #tps model
+  p3 <- predict(m, coordinates(test)) #get TPS predictions
+  tpsrmse[i] <-  RMSE(test$OZDLYAV, p3) #get RMSE
+  w <- c(idwrmse[i], krigrmse[i], tpsrmse[i]) #get values for weighting
+  weights <- w / sum(w) #assign weights for each model
+  ensemble <- p1 * weights[1] + p2 * weights[2] + p3 * weights[3] #get a weighted prediction value using all the models
+  ensrmse[i] <-  RMSE(test$OZDLYAV, ensemble) #get RMSE
+}
+#get the mean for each RMSE K-folded set
+rmi <- mean(idwrmse) 
+rmk <- mean(krigrmse)
+rmt <- mean(tpsrmse)
+
+#get it into one vector
+rms <- c(rmi, rmt, rmk)
+rms
+
+#get mean of the ensemble
+rme <- mean(ensrmse)
+rme
+```
+
+## 6: Best Method
+
+__Which method performed best?__
+
+> Ordinary Kriging Performed best between the three models, with a mean RMSE of ~7.93. What's interesting is the weighted ensemble actually outperforms the three models, with a mean RMSE of ~7.86.
+
+Raster stack
+```{r}
+#get weights again for the ensemble
+weights <- ( rms / sum(rms) )
+
+#stack up those interpolations
+s <- stack(idw, ok[[1]], tps)
+
+#do some math, get the ensemble
+ensemble <- sum(s * weights)
+```
+
+```{r}
+
+#stack it up again
+s <- stack(idw, ok[[1]], tps, ensemble)
+
+#give it names
+names(s) <- c('IDW', 'OK', 'TPS', 'Ensemble')
+
+#oooooh pretty 
+plot(s)
+```
+
+## 7: IDW - OK
+
+__Show where the largest difference exist between IDW and OK.__
+
+```{r}
+#idw minus ordinary kriging
+dif <- idw-ok[[1]]
+plot(dif, main = "Difference between IDW and Ordinary Kriging")
+```
+
+
+## 8: IDW - OK 95% CI
+
+__Show where the difference between IDW and OK is within the 95% confidence limit of the OK prediction.__
+
+```{r}
+
+#get upper and lower 95% conf interval
+#` x +- 1.96 * stan dev / sqrt of n observations
+upper_ok <- ok[[1]]+(1.96*(sqrt(ok[[2]])/sqrt(nrow(aq))))
+lower_ok <- ok[[1]]-(1.96*(sqrt(ok[[2]])/sqrt(nrow(aq))))
+
+#copy our idw raster
+idw_diff <- idw
+
+#take away values outside the CI
+idw_diff[idw_diff>upper_ok] <- NA
+idw_diff[idw_diff<lower_ok] <- NA
+
+#plot
+plot(ca, main = "Difference between IDW and OK \n within 95% CI")
+plot(idw_diff, add = T)
+
+```
+
+## 9: Comment on Pattern
+
+__Can you describe the pattern we are seeing, and speculate about what is causing it?__
+
+```{r}
+#plot(aq, add = TRUE)
+```
+
