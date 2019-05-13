@@ -1,0 +1,136 @@
+---
+title: "Week 7 HW"
+author: "Tyler Jackson"
+date: "5/13/2019"
+output: html_document
+---
+
+#Setup
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Libs
+```{r}
+library(ISLR)
+```
+
+
+```{r}
+
+```
+
+# Monday
+ In Chapter 4, we used logistic regression to predict the probability of default using income and balance on the Default data set. We will now estimate the test error of this logistic regression model using the validation set approach. Do not forget to set a random seed before beginning your analysis.
+ 
+## (a) Fit a logistic regression model that uses income and balance to predict default.
+
+```{r}
+
+
+#bring data into env, not neccesary
+df <- Default
+
+#fit a logit model, family = "binomial". see ? family
+fit.df <- glm(default ~ income + balance, data = df, family = "binomial")
+
+#check it out
+summary(fit.df)
+```
+
+
+## (b) Using the validation set approach, estimate the test error of this model. In order to do this, you must perform the following steps:
+
+  ### i. Split the sample set into a training set and a validation set.
+
+```{r}
+#set seed so we get consistent reproducability
+set.seed(513)
+
+#training data numbers for the lm
+train <- sample (nrow(df), nrow(df)/2)
+```
+
+  ### ii. Fit a multiple logistic regression model using only the training observations.
+  
+```{r}
+
+#run a logit model, using the training subset
+fit.train <- glm(default ~ income + balance, data = df, family = "binomial", subset = train)
+
+
+summary(fit.train)
+```
+  
+  ### iii. Obtain a prediction of default status for each individual in the validation set by computing the posterior probability of default for that individual, and classifying the individual to the default category if the posterior probability is greater than 0.5.
+
+```{r}
+#get the post probability using the training model on the validation data
+df.pred <- predict(fit.train, df[-train,], type = "response")
+
+#code them Yes / No
+default <- ifelse(df.pred > 0.5, "Yes", "No")
+
+table(default)
+```
+
+  ### iv. Compute the validation set error, which is the fraction of the observations in the validation set that are misclassified.
+
+```{r}
+#Compute VSE, the rate of coded predictions that don't match the actual validation data
+mean(default != df[-train,"default"])
+```
+
+## (c) Repeat the process in (b) three times, using three different splits of the observations into a training set and a validation set. Comment on the results obtained.
+
+```{r}
+#` function that repeats the above process
+defaultError <- function(formula=default~income+balance,n=10000,s=5000,seed){
+  set.seed(seed) #this is not needed but it is also OK
+  train <- sample(n,s) #get training set row numbers                       
+  fit <- glm(formula, family = 'binomial', data=df,subset=train) #fit model
+  p <- predict(fit, df[-train,],type = 'response') #get predictions
+  d <- ifelse(p > 0.5, "Yes", "No") #code them y/n
+  mean(d != df[-train,"default"]) #get the error (VSE)              
+  }
+```
+
+```{r}
+#for loop does this three times
+for (i in 1:3){
+  print(defaultError(seed = i))
+}
+```
+
+> Say something about the error rate here
+
+## (d) Now consider a logistic regression model that predicts the probability of default using income, balance, and a dummy variable for student. Estimate the test error for this model using the validation set approach. Comment on whether or not including a dummy variable for student leads to a reduction in the test error rate.
+
+```{r}
+#modify the formula to include student
+for (i in 1:3){
+  print(defaultError(formula = default~income+balance+student, seed=i))
+}
+```
+
+> Say something about the inclusion of student
+
+#Wednesday
+
+Question 2: Describe (in statistical terms) and explain (in physical terms) the results shown by summary(m) 
+
+Question 3: According to this model. How much does the temperature in California change if you travel 500 miles to the north (show the R code to compute that)
+
+Question 4: Was it important to do 5-fold cross-validation, instead of a single 20-80 split?
+
+Question 5: What is the best model sofar? Why?
+
+Question 6: Rerun the last model using (a) ridge regression, and (b) lasso regression. Show the changes in coefficients for three values of lambda; by finishing the code below
+
+Question 7: What does the the “span” argument represent?
+
+Question 8: What is a main reason that this the best prediction sofar?
+
+Question 9: Use the help files to exaplin the model below. What do you think of it? Is it better or worse than the gam we did above?
+
+

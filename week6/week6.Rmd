@@ -853,7 +853,6 @@ plot(idw_diff, add = T)
 
 __Can you describe the pattern we are seeing, and speculate about what is causing it?__
 
-```{r}
-#plot(aq, add = TRUE)
-```
+> It looks to me like most of the 95% CI is spread out across much of the central area of the state as well as down south on the western edge. This looks to coincide with some of the observed air quality data, perhaps what is causing this pattern is areas close to observed values fall in the 95% CI. 
+
 
