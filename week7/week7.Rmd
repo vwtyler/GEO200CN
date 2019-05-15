@@ -13,20 +13,27 @@ knitr::opts_chunk$set(echo = TRUE)
 Libs
 ```{r}
 library(ISLR)
+library(raster)
+library(rgdal)
+library(dismo)
+library(glmnet)
 ```
 
-
+Path & Data
 ```{r}
+#set data dir path
+dat.path <- "/Users/tyler/Dropbox/_200CN/labs/week7/data"
 
+#unzip week7 data into the data dir (for wednesday q's)
+unzip(file.path(dat.path, "week7.zip"), overwrite = TRUE, exdir = dat.path)
 ```
 
 # Monday
- In Chapter 4, we used logistic regression to predict the probability of default using income and balance on the Default data set. We will now estimate the test error of this logistic regression model using the validation set approach. Do not forget to set a random seed before beginning your analysis.
+In Chapter 4, we used logistic regression to predict the probability of default using income and balance on the Default data set. We will now estimate the test error of this logistic regression model using the validation set approach. Do not forget to set a random seed before beginning your analysis.
  
 ## (a) Fit a logistic regression model that uses income and balance to predict default.
 
 ```{r}
-
 
 #bring data into env, not neccesary
 df <- Default
@@ -81,6 +88,8 @@ table(default)
 mean(default != df[-train,"default"])
 ```
 
+> There is a `r (mean(default != df[-train,"default"]))*100`% error rate using the validation set method.
+
 ## (c) Repeat the process in (b) three times, using three different splits of the observations into a training set and a validation set. Comment on the results obtained.
 
 ```{r}
@@ -102,30 +111,274 @@ for (i in 1:3){
 }
 ```
 
-> Say something about the error rate here
+> Here we can see that the error rate floats around 2.5% in the repetated validation set methods with different test / training data, with a max of 2.64% and a min of 2.38%. 
 
 ## (d) Now consider a logistic regression model that predicts the probability of default using income, balance, and a dummy variable for student. Estimate the test error for this model using the validation set approach. Comment on whether or not including a dummy variable for student leads to a reduction in the test error rate.
 
 ```{r}
 #modify the formula to include student
-for (i in 1:3){
+for (i in 4:6){
   print(defaultError(formula = default~income+balance+student, seed=i))
 }
 ```
 
-> Say something about the inclusion of student
+> The inclusion of student in our model does not seem to affect the error rate in a significant way. It certainly does not lead to a reduction in test error rate.
 
-#Wednesday
+****
+# Wednesday
 
-Question 2: Describe (in statistical terms) and explain (in physical terms) the results shown by summary(m) 
+Load data
+```{r}
+#read temperature data
+d <- read.csv(file.path(dat.path, "temperature.csv"))
 
-Question 3: According to this model. How much does the temperature in California change if you travel 500 miles to the north (show the R code to compute that)
+#calculate annual temps
+d$temp <- rowMeans(d[, c(6:17)])
 
-Question 4: Was it important to do 5-fold cross-validation, instead of a single 20-80 split?
+#get county data
+CA <- shapefile(file.path(dat.path, "counties_2000.shp"))
+
+#turn our temp data spatial for mapping and stuff
+dsp <- SpatialPoints(d[,3:4], proj4string=CRS("+proj=longlat +datum=NAD83"))
+
+#add in the dataframe d for calculations
+dsp <- SpatialPointsDataFrame(dsp, d)
+```
+
+Spatial Transformations
+```{r}
+#teale albers CRS
+TA <- CRS(" +proj=aea +lat_1=34 +lat_2=40.5 +lat_0=0 +lon_0=-120 +x_0=0 
+          +y_0=-4000000 +datum=NAD83 +units=m +no_defs +ellps=GRS80 +towgs84=0,0,0")
+
+
+#transform the SP objects dsp and CA to Teale Albers
+dta <- spTransform(dsp, TA)
+cata <- spTransform(CA, TA)
+```
+
+NULL
+```{r}
+#` here's the root mean squared error function
+RMSE <- function(observed, predicted) {
+  sqrt(mean((predicted - observed)^2, na.rm=TRUE))
+}
+```
+
+```{r}
+#get the temp mean
+tavg <- mean(d$temp)
+
+#get null RMSE
+nullRMSE <- RMSE(tavg, dsp$temp)
+nullRMSE
+```
+
+K-Fold
+```{r}
+#same randomness
+set.seed(5162016)
+
+#k-folds 5
+k <- kfold(dta)
+
+#now we have 5 groups randomly assigned
+table(k)
+```
+
+Prepare to run a model(really we should be doin 5)
+```{r}
+#create test/train from one of the folds
+test <- dta[k==1, ]
+train <- dta[k!=1, ]
+
+df <- data.frame(coordinates(train), temp=train$temp)
+colnames(df)[1:2] = c('x', 'y')
+```
+
+```{r}
+m <- glm(temp ~ x+y, data=df)
+summary(m)
+```
+
+## Question 2: Describe (in statistical terms) and explain (in physical terms) the results shown by summary(m) 
+
+> The resulting table shows a coefficient for x that is positive but not statistically significant. It shows a negative coefficienct for y that is statistically significant. This means that as you move north, temperature goes down. 
+
+## Question 3: According to this model. How much does the temperature in California change if you travel 500 miles to the north (show the R code to compute that)
+
+```{r}
+# 500 miles to meters (our model is in meters)
+# multiply that by the coefficient for y 
+# answer will be negative reflecting the decrease
+
+#1 mile = 1609.344 meters
+dist <- 500 * 1609.344
+
+#get the coefficient for y and multiply by the distance
+tchg <- coef(m)[3]*dist
+```
+
+> According to the model, the temperature will __decrease__ by about `r round(tchg, 2)*-1` degrees when travelling north by 500 miles.
+
+****
+5 Fold Cross Validation
+
+```{r}
+v <- data.frame(coordinates(test))
+colnames(v)[1:2] = c('x', 'y')
+p <- predict(m, v)
+head(p)
+```
+
+```{r}
+r <- rep(NA,5)
+for (i in 1:5) {
+  test <- dta[k==i, ]
+  train <- dta[k!=i, ]
+  df <- data.frame(coordinates(train), temp=train$temp)
+  m <- glm(temp ~ ., data=df)
+  v <- data.frame(coordinates(test))
+  p <- predict(m, v)
+  r[i] <- RMSE(p, test$temp)
+}
+r
+mean(r)
+```
+
+## Question 4: Was it important to do 5-fold cross-validation, instead of a single 20-80 split?
+
+> The 5-fold cross-validation gives us a more accurate estimation of RMSE than a single 20-80 split.
+
+****
+
+Other ways of estimation
+
+Raster the hard way?
+```{r}
+#create a raster grid of california
+r <- raster(round(extent(cata)), res=10000, crs=TA)
+
+# get the x coordinates
+x <- init(r, v='x')
+# set areas outside of CA to NA
+x <- mask(x, cata)
+# get the y coordinates
+y <- init(r, v='y')
+# combine the two variables (RasterLayers)
+s <- stack(x,y)
+names(s) <- c('x', 'y')
+
+```
+
+Make a model
+```{r}
+df <- data.frame(coordinates(dta), temp=dta$temp)
+colnames(df)[1:2] = c('x', 'y')
+m <- glm(temp ~ ., data=df)
+# predict
+trend <- predict(s, m)
+
+linearAIC <- AIC(m)
+linearRMSE <- RMSE(predict(m), df$temp)
+
+
+plot(trend)
+```
+
+Can do the same thing with interpolate
+```{r}
+z <- interpolate(r, m)
+mask <- mask(z, cata)
+zm <- mask(z, mask)
+
+plot(zm)
+```
+
+
+w/ interaction
+```{r}
+df <- data.frame(coordinates(dta), temp=dta$temp)
+colnames(df)[1:2] = c('x', 'y')
+test <- df[k==1, ]
+train <- df[k!=1, ]
+
+m <- glm(temp ~ x*y, data=train)
+summary(m)
+intAIC <- AIC(m)
+intRMSE <- RMSE(predict(m, test), test$temp)
+z <- interpolate(r, m)
+zm <- mask(z, mask)
+plot(zm)
+contour(zm, add=TRUE)
+```
+
+
+with polynomial
+```{r}
+m <- glm(temp ~ x + y + I(x^2) + I(y^2), data=df)
+summary(m)
+polyAIC <- AIC(m)
+polyRMSE <- RMSE(predict(m, test), test$temp)
+z <- interpolate(r, m)
+zm <- mask(z, mask)
+plot(zm)
+contour(zm, add=TRUE)
+```
+
+second order polynomials and interactions
+```{r}
+m <- glm(temp ~ poly(x, 2, raw=TRUE) * poly(y, 2, raw=TRUE), data=df)
+summary(m)
+poly2AIC <- AIC(m)
+poly2RMSE <- RMSE(predict(m, test), test$temp)
+z <- interpolate(r, m)
+zm <- mask(z, mask)
+plot(zm)
+contour(zm, add=TRUE)
+```
 
 Question 5: What is the best model sofar? Why?
 
+```{r}
+#put the AICs in a vector for plotting
+AICs <- c(linearAIC, intAIC , polyAIC, poly2AIC)
+
+#plot the AICs
+par(mfrow=c(1,2))
+plot(AICs, type="l", lwd=1.5, xaxt="n", xlab="Model Specification", main = "AIC Comparison")
+axis(1, at=1:4,labels=F) #4= number of models
+labels<-c("OLS", "Inter","Poly", "Poly + Int")
+text(1:4, par("usr")[3]-.25, srt=45, adj=1.3, labels=labels, xpd=T)
+
+#circle the model with the lowest AIC
+symbols(x= which.min(AICs), y=AICs[which.min(AICs)], circles=.2, fg=2,lwd=2,add=T, inches = FALSE)
+
+#put the RMSEs in a vector for plotting
+RMSEs <- c(nullRMSE, linearRMSE , intRMSE, polyRMSE, poly2RMSE)
+
+plot(RMSEs, type="l", lwd=1.5, xaxt="n", xlab="Model Specification", main = "RMSE Comparison")
+axis(1, at=1:5,labels=F) #4= number of models
+labels<-c("NULL", "OLS", "Inter","Poly", "Poly + Int")
+text(1:5, par("usr")[3]-.25, srt=45, adj=.25, labels=labels, xpd=T)
+
+#circle the model with the lowest RMSE
+symbols(x= which.min(RMSEs), y=RMSEs[which.min(RMSEs)], circles=0.2, fg=2,lwd=2,add=T, inches = FALSE)
+```
+
+> Looking at the plot comparisons, the second order polynomial + interactions model (poly + int) has the lowest RMSE. This would give us a model with high predictive power and high variance. However, the interaction model has the lowest AIC, which would give us a conservative model with lower predictive power, but lower variance and more explanatory power.
+
 Question 6: Rerun the last model using (a) ridge regression, and (b) lasso regression. Show the changes in coefficients for three values of lambda; by finishing the code below
+
+```{r}
+f <- temp ~ poly(x, 2, raw=TRUE) * poly(y, 2, raw=TRUE)
+x <- model.matrix(f, df)
+
+#lasso ( alpha= 1, the default) and ridge (alpha = 0)
+ridge <- glmnet(x, df$temp, alpha = 0, )
+```
+
+
 
 Question 7: What does the the “span” argument represent?
 
