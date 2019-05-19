@@ -17,6 +17,7 @@ library(raster)
 library(rgdal)
 library(dismo)
 library(glmnet)
+library(fields)
 ```
 
 Path & Data
@@ -192,11 +193,13 @@ Prepare to run a model(really we should be doin 5)
 test <- dta[k==1, ]
 train <- dta[k!=1, ]
 
+#get a df of the training data with x,y and temp
 df <- data.frame(coordinates(train), temp=train$temp)
 colnames(df)[1:2] = c('x', 'y')
 ```
 
 ```{r}
+#run the glm on the training data
 m <- glm(temp ~ x+y, data=df)
 summary(m)
 ```
@@ -225,24 +228,34 @@ tchg <- coef(m)[3]*dist
 5 Fold Cross Validation
 
 ```{r}
+#get the testing data in a df for the loop
 v <- data.frame(coordinates(test))
 colnames(v)[1:2] = c('x', 'y')
+
+#precition of the test data with the training model
 p <- predict(m, v)
 head(p)
 ```
 
 ```{r}
+#set up a vector to fill
 r <- rep(NA,5)
+
+#loop 5 times
 for (i in 1:5) {
-  test <- dta[k==i, ]
-  train <- dta[k!=i, ]
-  df <- data.frame(coordinates(train), temp=train$temp)
-  m <- glm(temp ~ ., data=df)
-  v <- data.frame(coordinates(test))
-  p <- predict(m, v)
-  r[i] <- RMSE(p, test$temp)
+  test <- dta[k==i, ] #set aside test data for each i
+  train <- dta[k!=i, ] #set aside train data for each i
+  df <- data.frame(coordinates(train), temp=train$temp) #create the train df
+  m <- glm(temp ~ ., data=df) #run a model
+  v <- data.frame(coordinates(test)) #get the test data for prediction
+  p <- predict(m, v) #predict based on the training model
+  r[i] <- RMSE(p, test$temp) #get the rmse for each i
 }
-r
+
+#our five rmse's
+r 
+
+#the mean of the 5
 mean(r)
 ```
 
@@ -273,13 +286,19 @@ names(s) <- c('x', 'y')
 
 Make a model
 ```{r}
+#df of the coords w/ temp
 df <- data.frame(coordinates(dta), temp=dta$temp)
 colnames(df)[1:2] = c('x', 'y')
+
+#glm model
 m <- glm(temp ~ ., data=df)
 # predict
 trend <- predict(s, m)
 
+#get the aic of the model
 linearAIC <- AIC(m)
+
+#and the rmse
 linearRMSE <- RMSE(predict(m), df$temp)
 
 
@@ -288,8 +307,14 @@ plot(trend)
 
 Can do the same thing with interpolate
 ```{r}
+
+#here we are basically doing what we did above but with interpolate
 z <- interpolate(r, m)
+
+#making a mask to get the shape
 mask <- mask(z, cata)
+
+#getting the raster to plot
 zm <- mask(z, mask)
 
 plot(zm)
@@ -298,17 +323,31 @@ plot(zm)
 
 w/ interaction
 ```{r}
+#df with all data, xy+temp
 df <- data.frame(coordinates(dta), temp=dta$temp)
 colnames(df)[1:2] = c('x', 'y')
+
+#set aside training and test from our previous k-fold `k`
 test <- df[k==1, ]
 train <- df[k!=1, ]
 
+#interatction model
 m <- glm(temp ~ x*y, data=train)
 summary(m)
+
+#get aic for comparison
 intAIC <- AIC(m)
+
+#get RMSE for comparison
 intRMSE <- RMSE(predict(m, test), test$temp)
+
+#interpolate 
 z <- interpolate(r, m)
+
+#mask
 zm <- mask(z, mask)
+
+#plot w/ contours
 plot(zm)
 contour(zm, add=TRUE)
 ```
@@ -316,10 +355,18 @@ contour(zm, add=TRUE)
 
 with polynomial
 ```{r}
+#run model with polynomial terms
+#but why is this with not the training data?
 m <- glm(temp ~ x + y + I(x^2) + I(y^2), data=df)
 summary(m)
+
+#get aic
 polyAIC <- AIC(m)
+
+#get RMSE
 polyRMSE <- RMSE(predict(m, test), test$temp)
+
+#interpolate and plot
 z <- interpolate(r, m)
 zm <- mask(z, mask)
 plot(zm)
@@ -328,10 +375,17 @@ contour(zm, add=TRUE)
 
 second order polynomials and interactions
 ```{r}
+#run model with poly + interactions
 m <- glm(temp ~ poly(x, 2, raw=TRUE) * poly(y, 2, raw=TRUE), data=df)
 summary(m)
+
+#get aic for comparing
 poly2AIC <- AIC(m)
+
+#get RMSE for comparing
 poly2RMSE <- RMSE(predict(m, test), test$temp)
+
+#interpolate and plot
 z <- interpolate(r, m)
 zm <- mask(z, mask)
 plot(zm)
@@ -364,25 +418,140 @@ text(1:5, par("usr")[3]-.25, srt=45, adj=.25, labels=labels, xpd=T)
 
 #circle the model with the lowest RMSE
 symbols(x= which.min(RMSEs), y=RMSEs[which.min(RMSEs)], circles=0.2, fg=2,lwd=2,add=T, inches = FALSE)
+par(mfrow=c(1,1))
 ```
 
-> Looking at the plot comparisons, the second order polynomial + interactions model (poly + int) has the lowest RMSE. This would give us a model with high predictive power and high variance. However, the interaction model has the lowest AIC, which would give us a conservative model with lower predictive power, but lower variance and more explanatory power.
+> Looking at the plot comparisons, the second order polynomial + interactions model (poly + int) has the lowest RMSE. This would give us a model with high predictive power and but with high variance. However, the interaction model has the lowest AIC, which would give us a conservative model with lower predictive power, but lower variance and more inferential power.
 
 Question 6: Rerun the last model using (a) ridge regression, and (b) lasso regression. Show the changes in coefficients for three values of lambda; by finishing the code below
 
+Ridge
 ```{r}
+# this is our interaction model 
 f <- temp ~ poly(x, 2, raw=TRUE) * poly(y, 2, raw=TRUE)
+
+#make a matrix with the interactions in the dataframe
 x <- model.matrix(f, df)
 
-#lasso ( alpha= 1, the default) and ridge (alpha = 0)
-ridge <- glmnet(x, df$temp, alpha = 0, )
+#ridge model: lasso ( alpha= 1, the default) and ridge (alpha = 0)
+ridge <- glmnet(x, df$temp, alpha = 0, nlambda = 3)
+
+#ridge coefficients
+coef(ridge)
+```
+
+Lasso
+```{r}
+#lasso model: lasso ( alpha= 1, the default) and ridge (alpha = 0)
+lasso <- glmnet(x, df$temp, alpha = 1, lambda = c(0.24, 24, 2400))
+
+#lasso coefficients
+coef(lasso)
+```
+
+Difference (changes)
+```{r}
+#the difference between the coefficients
+coef(ridge) - coef(lasso)
+```
+
+****
+
+Local regression
+```{r}
+
+#here we do a loess regression
+m <- loess(temp ~ x + y, span=.2, data=train)
+
+#interpolate and mask and plot
+z <- interpolate(r, m)
+zm <- mask(z, mask)
+plot(zm)
+contour(zm, add=TRUE)
+
+#get RMSE for comparing?
+localRMSE <- RMSE(predict(m, test), test$temp)
+```
+
+Question 7: What does the the “span” argument represent?
+
+> the `span` argument represents the degree of smoothing. Too high of a span and the plot loses some of the detail. 
+
+****
+
+TPS
+```{r}
+#thin plate spline, x = ind variable (the coords), y = dependent (the temp)
+tps <- Tps(train[, c('x', 'y')],  train$temp)
+tps
+
+#interpolate with TPS and plot
+ptps <- interpolate(r, tps)
+ptps <- mask(ptps, mask)
+plot(ptps)
+contour(ptps, add=TRUE)
+
+#get pridictions of the test
+pt <- predict(tps, test[, c('x', 'y')])
+RMSE(pt, test$temp)
+
+```
+
+
+Bring in Elevation as a covariate
+```{r}
+#get elevation for ca
+elv1 <- raster::getData('worldclim', res=0.5, var='alt', lon=-122, lat= 37)
+elv2 <- raster::getData('worldclim', res=0.5, var='alt', lon=-120, lat= 37)
+
+#merge together in one raster
+elv <- merge(elv1, elv2, overlap=FALSE)
+
+#project and plot
+telv <- projectRaster(elv, r)
+celv <- mask(telv, mask)
+names(celv) <- 'elevation'
+plot(celv)
+
+```
+
+Model Building
+```{r}
+#get test and train elv data
+train$elevation <- extract(celv, train[, 1:2])
+test$elevation <- extract(celv, test[, 1:2])
+
+#remove NAs
+train <- train[!is.na(train$elevation), ]
+test <- test[!is.na(test$elevation), ]
+
+#run another TPS with elevation included as a dependent var
+tps2 <- Tps(train[, c('x', 'y', 'elevation')], train$temp)
+
+
+# let's interpolate and plot
+ptps2 <- interpolate(celv, tps2, xyOnly=FALSE)
+plot(ptps2)
+contour(ptps2, add=TRUE)
+
+
+
+#get predictions
+pt2 <- predict(tps2, test[,  c('x', 'y', 'elevation')])
+
+#get the RMSE 
+RMSE(test$temp, pt2)
 ```
 
 
 
-Question 7: What does the the “span” argument represent?
-
 Question 8: What is a main reason that this the best prediction sofar?
+
+```{r}
+
+
+```
+
 
 Question 9: Use the help files to exaplin the model below. What do you think of it? Is it better or worse than the gam we did above?
 
