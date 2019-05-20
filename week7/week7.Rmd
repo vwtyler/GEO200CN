@@ -2,15 +2,21 @@
 title: "Week 7 HW"
 author: "Tyler Jackson"
 date: "5/13/2019"
-output: html_document
+output:
+  html_document:
+    theme: journal
+    toc: true
+    toc_float: true
+    toc_depth: 3
 ---
 
-#Setup
+# Setup
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-Libs
+## Libs
 ```{r}
 library(ISLR)
 library(raster)
@@ -18,9 +24,10 @@ library(rgdal)
 library(dismo)
 library(glmnet)
 library(fields)
+library(mgcv)
 ```
 
-Path & Data
+## Path & Data
 ```{r}
 #set data dir path
 dat.path <- "/Users/tyler/Dropbox/_200CN/labs/week7/data"
@@ -32,7 +39,13 @@ unzip(file.path(dat.path, "week7.zip"), overwrite = TRUE, exdir = dat.path)
 # Monday
 In Chapter 4, we used logistic regression to predict the probability of default using income and balance on the Default data set. We will now estimate the test error of this logistic regression model using the validation set approach. Do not forget to set a random seed before beginning your analysis.
  
-## (a) Fit a logistic regression model that uses income and balance to predict default.
+
+
+## Question 1
+
+### (a) Fit Model
+
+__Fit a logistic regression model that uses income and balance to predict default.__
 
 ```{r}
 
@@ -47,9 +60,11 @@ summary(fit.df)
 ```
 
 
-## (b) Using the validation set approach, estimate the test error of this model. In order to do this, you must perform the following steps:
+### (b) Validation
 
-  ### i. Split the sample set into a training set and a validation set.
+__Using the validation set approach, estimate the test error of this model. In order to do this, you must perform the following steps__
+
+#### i. Split the sample set into a training set and a validation set.
 
 ```{r}
 #set seed so we get consistent reproducability
@@ -59,7 +74,7 @@ set.seed(513)
 train <- sample (nrow(df), nrow(df)/2)
 ```
 
-  ### ii. Fit a multiple logistic regression model using only the training observations.
+#### ii. Fit a multiple logistic regression model using only the training observations.
   
 ```{r}
 
@@ -70,7 +85,7 @@ fit.train <- glm(default ~ income + balance, data = df, family = "binomial", sub
 summary(fit.train)
 ```
   
-  ### iii. Obtain a prediction of default status for each individual in the validation set by computing the posterior probability of default for that individual, and classifying the individual to the default category if the posterior probability is greater than 0.5.
+#### iii. Obtain a prediction of default status for each individual in the validation set by computing the posterior probability of default for that individual, and classifying the individual to the default category if the posterior probability is greater than 0.5.
 
 ```{r}
 #get the post probability using the training model on the validation data
@@ -82,7 +97,7 @@ default <- ifelse(df.pred > 0.5, "Yes", "No")
 table(default)
 ```
 
-  ### iv. Compute the validation set error, which is the fraction of the observations in the validation set that are misclassified.
+#### iv. Compute the validation set error, which is the fraction of the observations in the validation set that are misclassified.
 
 ```{r}
 #Compute VSE, the rate of coded predictions that don't match the actual validation data
@@ -91,7 +106,9 @@ mean(default != df[-train,"default"])
 
 > There is a `r (mean(default != df[-train,"default"]))*100`% error rate using the validation set method.
 
-## (c) Repeat the process in (b) three times, using three different splits of the observations into a training set and a validation set. Comment on the results obtained.
+### (c) Repeat
+
+__Repeat the process in (b) three times, using three different splits of the observations into a training set and a validation set. Comment on the results obtained.__
 
 ```{r}
 #` function that repeats the above process
@@ -114,7 +131,9 @@ for (i in 1:3){
 
 > Here we can see that the error rate floats around 2.5% in the repetated validation set methods with different test / training data, with a max of 2.64% and a min of 2.38%. 
 
-## (d) Now consider a logistic regression model that predicts the probability of default using income, balance, and a dummy variable for student. Estimate the test error for this model using the validation set approach. Comment on whether or not including a dummy variable for student leads to a reduction in the test error rate.
+### (d) Include Student 
+
+__Now consider a logistic regression model that predicts the probability of default using income, balance, and a dummy variable for student. Estimate the test error for this model using the validation set approach. Comment on whether or not including a dummy variable for student leads to a reduction in the test error rate.__
 
 ```{r}
 #modify the formula to include student
@@ -204,11 +223,15 @@ m <- glm(temp ~ x+y, data=df)
 summary(m)
 ```
 
-## Question 2: Describe (in statistical terms) and explain (in physical terms) the results shown by summary(m) 
+## Question 2
+
+__Describe (in statistical terms) and explain (in physical terms) the results shown by summary(m)__
 
 > The resulting table shows a coefficient for x that is positive but not statistically significant. It shows a negative coefficienct for y that is statistically significant. This means that as you move north, temperature goes down. 
 
-## Question 3: According to this model. How much does the temperature in California change if you travel 500 miles to the north (show the R code to compute that)
+## Question 3
+
+__According to this model. How much does the temperature in California change if you travel 500 miles to the north (show the R code to compute that)__
 
 ```{r}
 # 500 miles to meters (our model is in meters)
@@ -259,7 +282,9 @@ r
 mean(r)
 ```
 
-## Question 4: Was it important to do 5-fold cross-validation, instead of a single 20-80 split?
+## Question 4 
+
+__Was it important to do 5-fold cross-validation, instead of a single 20-80 split?__
 
 > The 5-fold cross-validation gives us a more accurate estimation of RMSE than a single 20-80 split.
 
@@ -302,7 +327,7 @@ linearAIC <- AIC(m)
 linearRMSE <- RMSE(predict(m), df$temp)
 
 
-plot(trend)
+plot(trend, main = "Annual Temp in CA \n Basic Linear Model")
 ```
 
 Can do the same thing with interpolate
@@ -317,7 +342,7 @@ mask <- mask(z, cata)
 #getting the raster to plot
 zm <- mask(z, mask)
 
-plot(zm)
+plot(zm, main = "Annual Temp in CA \n Basic Linear Model")
 ```
 
 
@@ -348,7 +373,7 @@ z <- interpolate(r, m)
 zm <- mask(z, mask)
 
 #plot w/ contours
-plot(zm)
+plot(zm, main = "Annual Temp in CA \n x*y Interaction Model")
 contour(zm, add=TRUE)
 ```
 
@@ -356,8 +381,8 @@ contour(zm, add=TRUE)
 with polynomial
 ```{r}
 #run model with polynomial terms
-#but why is this with not the training data?
-m <- glm(temp ~ x + y + I(x^2) + I(y^2), data=df)
+#data = train, not df
+m <- glm(temp ~ x + y + I(x^2) + I(y^2), data=train)
 summary(m)
 
 #get aic
@@ -369,14 +394,15 @@ polyRMSE <- RMSE(predict(m, test), test$temp)
 #interpolate and plot
 z <- interpolate(r, m)
 zm <- mask(z, mask)
-plot(zm)
+plot(zm, main = "Annual Temp in CA \n Polynomial Model")
 contour(zm, add=TRUE)
 ```
 
 second order polynomials and interactions
 ```{r}
 #run model with poly + interactions
-m <- glm(temp ~ poly(x, 2, raw=TRUE) * poly(y, 2, raw=TRUE), data=df)
+#data = train, not df
+m <- glm(temp ~ poly(x, 2, raw=TRUE) * poly(y, 2, raw=TRUE), data=train)
 summary(m)
 
 #get aic for comparing
@@ -388,11 +414,13 @@ poly2RMSE <- RMSE(predict(m, test), test$temp)
 #interpolate and plot
 z <- interpolate(r, m)
 zm <- mask(z, mask)
-plot(zm)
+plot(zm, main = "Annual Temp in CA \n Polynomial and Interaction Model")
 contour(zm, add=TRUE)
 ```
 
-Question 5: What is the best model sofar? Why?
+## Question 5 
+
+__What is the best model sofar? Why?__
 
 ```{r}
 #put the AICs in a vector for plotting
@@ -421,11 +449,13 @@ symbols(x= which.min(RMSEs), y=RMSEs[which.min(RMSEs)], circles=0.2, fg=2,lwd=2,
 par(mfrow=c(1,1))
 ```
 
-> Looking at the plot comparisons, the second order polynomial + interactions model (poly + int) has the lowest RMSE. This would give us a model with high predictive power and but with high variance. However, the interaction model has the lowest AIC, which would give us a conservative model with lower predictive power, but lower variance and more inferential power.
+> Looking at the plot comparisons, the second order polynomial + interactions model (poly + int) has the lowest RMSE as well as the lowest AIC. Indicating it may have a balance balance between bias and variance. The RMSE indicates a model with high predictive power and the AIC indicates lower variance and more inferential power. NOTE: When we first ran these according to the lab guide, the polynomial models were incorrectly using the full data set, which gave VERY different results, this has been corrected for, which changed the AIC results quite a bit.
 
-Question 6: Rerun the last model using (a) ridge regression, and (b) lasso regression. Show the changes in coefficients for three values of lambda; by finishing the code below
+## Question 6
 
-Ridge
+__Rerun the last model using (a) ridge regression, and (b) lasso regression. Show the changes in coefficients for three values of lambda; by finishing the code below__
+
+### Ridge
 ```{r}
 # this is our interaction model 
 f <- temp ~ poly(x, 2, raw=TRUE) * poly(y, 2, raw=TRUE)
@@ -440,7 +470,7 @@ ridge <- glmnet(x, df$temp, alpha = 0, nlambda = 3)
 coef(ridge)
 ```
 
-Lasso
+### Lasso
 ```{r}
 #lasso model: lasso ( alpha= 1, the default) and ridge (alpha = 0)
 lasso <- glmnet(x, df$temp, alpha = 1, lambda = c(0.24, 24, 2400))
@@ -449,7 +479,7 @@ lasso <- glmnet(x, df$temp, alpha = 1, lambda = c(0.24, 24, 2400))
 coef(lasso)
 ```
 
-Difference (changes)
+### Difference (changes)
 ```{r}
 #the difference between the coefficients
 coef(ridge) - coef(lasso)
@@ -466,14 +496,16 @@ m <- loess(temp ~ x + y, span=.2, data=train)
 #interpolate and mask and plot
 z <- interpolate(r, m)
 zm <- mask(z, mask)
-plot(zm)
+plot(zm, main = "Annual Temp in CA \n Local Model")
 contour(zm, add=TRUE)
 
 #get RMSE for comparing?
 localRMSE <- RMSE(predict(m, test), test$temp)
 ```
 
-Question 7: What does the the “span” argument represent?
+## Question 7
+
+__What does the the “span” argument represent?__
 
 > the `span` argument represents the degree of smoothing. Too high of a span and the plot loses some of the detail. 
 
@@ -488,12 +520,12 @@ tps
 #interpolate with TPS and plot
 ptps <- interpolate(r, tps)
 ptps <- mask(ptps, mask)
-plot(ptps)
+plot(ptps, main = "Annual Temp in CA \n TPS Model")
 contour(ptps, add=TRUE)
 
 #get pridictions of the test
 pt <- predict(tps, test[, c('x', 'y')])
-RMSE(pt, test$temp)
+tpsRMSE <- RMSE(pt, test$temp)
 
 ```
 
@@ -511,7 +543,7 @@ elv <- merge(elv1, elv2, overlap=FALSE)
 telv <- projectRaster(elv, r)
 celv <- mask(telv, mask)
 names(celv) <- 'elevation'
-plot(celv)
+
 
 ```
 
@@ -531,7 +563,7 @@ tps2 <- Tps(train[, c('x', 'y', 'elevation')], train$temp)
 
 # let's interpolate and plot
 ptps2 <- interpolate(celv, tps2, xyOnly=FALSE)
-plot(ptps2)
+plot(ptps2, main = "Annual Temp in CA \n TPS w/ Elevation Model")
 contour(ptps2, add=TRUE)
 
 
@@ -540,19 +572,79 @@ contour(ptps2, add=TRUE)
 pt2 <- predict(tps2, test[,  c('x', 'y', 'elevation')])
 
 #get the RMSE 
-RMSE(test$temp, pt2)
+elvRMSE <- RMSE(test$temp, pt2)
 ```
 
 
 
-Question 8: What is a main reason that this the best prediction sofar?
+## Question 8
+
+__What is a main reason that this the best prediction sofar?__
 
 ```{r}
+#add in the new model's RMSE
+RMSEs <-  c(RMSEs, localRMSE, tpsRMSE, elvRMSE)
 
+plot(RMSEs, type="l", lwd=1.5, xaxt="n", xlab="Model Specification", main = "RMSE Comparison")
+axis(1, at=1:8,labels=F) #4= number of models
+labels<-c("NULL", "OLS", "Inter", "Poly", "Poly+Int", "Local", "Tps", "Tps+Elv")
+text(1:8, par("usr")[3]-.25, srt=45, adj=.25, labels=labels, xpd=T)
+
+#circle the model with the lowest RMSE
+symbols(x= which.min(RMSEs), y=RMSEs[which.min(RMSEs)], circles=0.2, fg=2,lwd=2,add=T, inches = FALSE)
+par(mfrow=c(1,1))
 
 ```
 
+> With the lowest RMSE, the TPS with Elevation is the best model so far. I think this is because bringing in another relevant covariate such as elevation increases the accuracy of the predictions, because more the you know to start, the better off you are in the end. 
 
-Question 9: Use the help files to exaplin the model below. What do you think of it? Is it better or worse than the gam we did above?
+****
 
+GAM Models
 
+```{r}
+#run the Generalized Additive Model
+#note the terms are in s(), this is a smoothing function for GAM models
+ga <- gam(temp ~ s(x) + s(y) + s(elevation), data=train)
+
+#interpolate and plot
+x <- interpolate(celv, ga, xyOnly=FALSE)
+plot(x)
+contour(x, add=TRUE)
+
+#make predictions
+pg <- predict(ga, test)
+
+#get RMSE
+RMSE(test$temp, pg)
+```
+
+Individual Plots for Variables
+```{r}
+#This gets the plots for each variable
+plot.gam(ga, pages=1)
+```
+
+## Question 9 
+
+__Use the help files to exaplin the model below. What do you think of it? Is it better or worse than the gam we did above?__
+
+```{r}
+#` bs is the smothing penalty basis, ts is thin plate spline with null space, can shrink terms to 0
+#` te() = tensor product smoothing, k = 12 raises the number of degrees of freedom possible
+#` gam needs smoothed terms so these functions specify the type of smoothing
+ga2 <- gam(temp ~ te(x, y, k=12, bs='ts') + s(elevation, bs='ts'), data=train)
+
+#get predictions
+pg <- predict(ga2, test)
+
+#get RMSE
+RMSE(test$temp, pg)
+```
+
+Get individual plots
+```{r}
+plot.gam(ga2, pages=1)
+```
+
+> The RMSE for this is the lowest of all the models in the lab. I think this indicates some level of improved predictions. The gam plots for x, y looks similar to California in terms of space, though I'm not totally sure what it means. I put some comments above the model to indicate what is going on.
