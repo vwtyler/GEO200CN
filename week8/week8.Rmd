@@ -1,0 +1,662 @@
+---
+title: "Week 7 HW"
+author: "Tyler Jackson"
+date: "5/27/2019"
+output:
+  html_document:
+    theme: journal
+    toc: true
+    toc_float: true
+    toc_depth: 3
+editor_options: 
+  chunk_output_type: console
+---
+# Set Up
+
+## Path
+```{r}
+#path
+myPath <- "/Users/tyler/Dropbox/_200CN/labs/week8/data"
+
+
+#unzip (only once so we'll use an if)
+if(!file.exists(file.path(myPath, 'rs/samples.rds'))) { 
+  unzip(file.path(myPath, 'rsdata.zip'), exdir= myPath)
+}
+
+set.seed(520)
+```
+
+## Libs
+```{r}
+library(raster)
+library(rasterVis)
+library(rpart)
+library(gridExtra)
+library(dismo)
+library(randomForest)
+```
+
+# Exploration
+
+```{r}
+# first create a list of raster layers to use
+filenames <- paste0(file.path(myPath,'rs/LC08_044034_20170614_B'), 1:11, ".tif")
+head(filenames)
+
+#create raster stack from the object `filenames`
+landsat <- stack(filenames)
+
+#now we have object `landsat` for q1
+landsat
+```
+
+
+## Question 1
+
+__Use the plotRGB function with RasterStack ``landsat`` to create a true and false color composite (hint remember the position of the bands in the stack).__
+
+Get the plots ready
+```{r}
+par(mfrow=c(1,2))
+#plotRBG, specify our rgb layers from landsat raster
+#r = 4, g = 3, b = 2, NIR = 5
+plotRGB(landsat, r = 4, g = 3, b = 2, stretch = "lin", axes = TRUE, main="Landsat True Color Composite")
+
+#this is the false color composit, with NIR, Red, Green replacing r, g, b
+plotRGB(landsat, r = 5, g = 4, b = 3, stretch = "lin", main="Landsat False Color Composite", axes = TRUE)
+par(mfrow=c(1,1))
+```
+
+****
+
+```{r}
+landsat <- subset(landsat, 1:7)
+names(landsat)
+names(landsat) <- c('ultra-blue', 'blue', 'green', 'red', 'NIR', 'SWIR1', 'SWIR2')
+names(landsat)
+```
+
+## Question 2
+
+__Interactive selection from the image is also possible. Use ``drawExtent`` and ``drawPoly`` to select an area of interest__
+
+```{r eval=FALSE, include=TRUE}
+#this code doesn't run in the knit but I'm showing it for reference
+#here I created new plot with title, and ran the drawExtent function to pick my own extent
+#I then exported the image which shows below
+plotRGB(landsat, stretch = "lin", main = "drawExtent() Selection", axes = TRUE)
+drawExtent()
+
+#i did the same thing but then used drawPoly, which gives a polygon selection
+plotRGB(landsat, stretch = "lin", main = "drawPoly() Selection", axes = TRUE)
+drawPoly()
+
+```
+
+![](/Users/tyler/Dropbox/_200CN/labs/week8/data/extent.jpeg)
+
+> Above you can see the area selection in the red box from running the drawExtent() function.
+
+![](/Users/tyler/Dropbox/_200CN/labs/week8/data/polyext.jpeg)
+
+> Above you can see the selection in red from drawPoly(). It's worth noting that these functions also be saved as objects or matrices, which we could then use to crop the raster.
+
+## Question 3
+
+__Use the RasterStack ``landsatcrop`` to create a true and false color composite__
+
+Create the `landsatcrop` object
+```{r}
+# specify the extent we want to crop
+e <- extent(624387, 635752, 4200047, 4210939)
+# crop landsat by the extent
+landsatcrop <- crop(landsat, e)
+```
+
+True / False Composite
+
+```{r}
+par(mfrow=c(1,2))
+#plotRBG, specify our rgb layers from landsat raster
+#r = 4, g = 3, b = 2, NIR = 5
+plotRGB(landsatcrop, r = 4, g = 3, b = 2, stretch = "lin", axes = TRUE, main="Extent True Color Composite")
+
+#this is the false color composit, with NIR, Red, Green replacing r, g, b
+plotRGB(landsatcrop, r = 5, g = 4, b = 3, stretch = "lin", main="Extent False Color Composite", axes = TRUE)
+
+par(mfrow=c(1,1))
+```
+
+****
+
+Extract pixel values
+
+```{r}
+# load the polygons with land use land cover information
+samp <- readRDS(file.path(myPath,'rs/samples.rds'))
+# generate 300 point samples from the polygons
+ptsamp <- spsample(samp, 300, type='regular')
+# add the land cover class to the points
+ptsamp$class <- over(ptsamp, samp)$class
+# extract values with points
+df <- extract(landsat, ptsamp)
+# To see some of the reflectance values
+head(df)
+```
+
+Spectral Profiles
+
+```{r}
+ms <- aggregate(df, list(ptsamp$class), mean)
+# instead of the first column, we use row names
+rownames(ms) <- ms[,1]
+ms <- ms[,-1]
+
+which.max(ms[1,])
+```
+
+
+```{r}
+# Create a vector of color for the land cover classes for use in plotting
+mycolor <- c('darkred', 'yellow', 'burlywood', 'cyan', 'blue')
+#transform ms from a data.frame to a matrix
+ms <- as.matrix(ms)
+# First create an empty plot
+plot(0, ylim=c(0,0.6), xlim = c(1,7), type='n', xlab="Bands", ylab = "Reflectance")
+# add the different classes
+for (i in 1:nrow(ms)){
+  lines(ms[i,], type = "l", lwd = 3, lty = 1, col = mycolor[i])
+}
+# Title
+title(main="Spectral Profile from Landsat", font.main = 2)
+# Legend
+legend("topleft", rownames(ms),
+       cex=0.8, col=mycolor, lty = 1, lwd =3, bty = "n")
+```
+
+# Basic Math
+
+## Question 1 
+
+__Adapt the code shown above to compute indices to identify i) water and ii) built-up. Hint: Use the spectral profile plot to find the bands having maximum and minimum reflectance for these two classes__
+
+```{r}
+#` function that computes an index
+#` @img is the raster image, @k and @i are the layers
+vi <- function(img, k, i) {
+  bk <- img[[k]] #get image layer of k 
+  bi <- img[[i]] #get image layer of i
+  vi <- (bk - bi) / (bk + bi) #the diff between k and i over the sum of k and i give the index
+  return(vi) #return the index raster
+}
+```
+
+```{r}
+#get max / min reflectance for built (1)
+which.max(ms[1,]) #5 NIR
+which.min(ms[1,]) #3 GREEN
+
+#get max / min reflectance for water (5)
+which.max(ms[5,]) #1 ultrablue
+which.min(ms[5,]) #7 shortwave IR 2
+```
+
+Now we know which bands are the max and min for water and built-up layers. Let's make the indicies. 
+
+```{r}
+# For Landsat NIR = 5, g = 3
+#built index
+ndbi <- vi(landsat, 5, 3)
+plot(ndbi, col = rev(terrain.colors(10)), main = "Landsat-NDVI-Built")
+```
+
+```{r}
+# For Landsat ultra blue = 1, SWIR2 = 7
+#water index
+ndwi <- vi(landsat, 1, 7)
+plot(ndwi, col = rev(terrain.colors(10)), main = "Landsat-NDVI-Water")
+```
+
+
+## Question 2
+
+__Make histograms of the values the vegetation indices developed in question 1__
+
+```{r}
+# view histogram of data
+min(ndbi)
+hist(ndbi,
+     main = "Distribution of NDVI-Built values",
+     xlab = "NDVI",
+     ylab= "Frequency",
+     col = "wheat",
+     xlim = c(-0.75, 1),
+     breaks = 30,
+     xaxt = 'n')
+axis(side=1, at = seq(-0.75,1, 0.05), labels = seq(-0.75,1, 0.05))
+```
+
+```{r}
+hist(ndwi,
+     main = "Distribution of NDVI-Water values",
+     xlab = "NDVI",
+     ylab= "Frequency",
+     col = "wheat",
+     xlim = c(-0.75, 1),
+     breaks = 30,
+     xaxt = 'n')
+axis(side=1, at = seq(-0.75,1, 0.05), labels = seq(-0.75,1, 0.05))
+```
+
+## Question 3 
+
+__Is it possible to find water using thresholding of NDVI or any other indices?__
+
+```{r}
+# get the NDVI For Landsat NIR = 5, red = 4
+ndvi <- vi(landsat, 5, 4)
+```
+
+
+```{r}
+water <- reclassify(ndvi, c(-Inf,0, 1,  0, Inf, NA))
+plot(water, main = 'Water from Thresholding the Vegetation Index', col = "blue")
+```
+
+
+# Unsupervised Classification
+
+```{r}
+#get the 2011 landsat 5 data
+landsat5 <- stack(file.path(myPath, 'rs/centralvalley-2011LT5.tif'))
+
+#name the bands
+names(landsat5) <- c('blue', 'green', 'red', 'NIR', 'SWIR1', 'SWIR2')
+```
+
+
+## Question 1
+
+__Make a 3-band False Color Composite plot of ``landsat5``.__
+
+```{r}
+#plot rgb
+plotRGB(landsat5, r = 4, g = 3, b = 2, stretch = "lin", main="Extent False Color Composite", axes = TRUE)
+```
+
+****
+
+```{r}
+#compute the ndvi w/o a function using straight algebra
+ndvi <- 
+  (landsat5[['NIR']] - landsat5[['red']]) / (landsat5[['NIR']] + landsat5[['red']])
+```
+
+
+k-means classification
+
+prepare data
+```{r}
+# Extent to crop ndvi layer (this could be any extent in the data)
+# but using the example extent here
+e <- extent(-121.807, -121.725, 38.004, 38.072)
+
+# crop landsat ndvi by the extent
+ndvi <- crop(ndvi, e)
+ndvi
+
+#reproject the raster into a matrix
+#we need this to do the k-means classification
+nr <- getValues(ndvi)
+str(nr)
+```
+
+classify
+
+```{r}
+# It is important to set the seed generator because `kmeans` initiates the centers in random locations
+set.seed(99)
+
+# We want to create 10 clusters, allow 500 iterations, start with 5 random sets using "Lloyd" method
+kmncluster <- kmeans(na.omit(nr), centers = 10, iter.max = 500, nstart = 5, algorithm="Lloyd")
+
+# kmeans returns an object of class "kmeans"
+str(kmncluster)
+```
+
+
+```{r}
+# Use the ndvi object to set the cluster values to a new raster
+knr <- setValues(ndvi, kmncluster$cluster)
+
+#create a color pallete for the 10 clusters
+mycolor <- c("#fef65b","#ff0000", "#daa520","#0000ff","#0000ff","#00ff00","#cbbeb5",
+             "#c3ff5b", "#ff7373", "#00ff00", "#808080")
+
+#plot
+par(mfrow = c(1,2))
+plot(ndvi, col = rev(terrain.colors(10)), main = 'Landsat-NDVI')
+plot(knr, main = 'Unsupervised classification', col = mycolor )
+
+```
+
+## Question 2
+
+__Plot 3-band RGB of ``landsat5`` for the subset (extent ``e``) and result of ``kmeans`` clustering side-by-side and make a table of land-use land-cover labels for the clusters. E.g. cluster 4 and 5 are water.__
+
+```{r}
+# crop landsat 5 to extent e
+landsat5_e <- crop(landsat5, e)
+
+# plot
+par(mfrow = c(1,2))
+
+plotRGB(landsat5_e, "red", "green", "blue", stretch = "lin", axes = T, main = "landsat5 true color")
+plot(knr, main = 'Unsupervised classification', col = mycolor )
+```
+
+Cluster | Land-Use/Cover
+---|---
+1       | Vegetation
+2       | Urban
+3       | Urban
+4       | Water
+5       | Water
+6       | Vegetation
+7       | Water
+8       | Vegetation
+9       | Vegetation
+10      | Urban
+
+****
+
+# Supervised Classification
+
+Load up
+```{r}
+# load in national land cover database raster
+nlcd <- brick('data/rs/nlcd-L1.tif')
+
+# has 2001 and 2011 data
+names(nlcd) <- c("nlcd2001", "nlcd2011")
+
+# The class names and colors for plotting
+nlcdclass <- c("Water", "Developed", "Barren", "Forest", "Shrubland", "Herbaceous", "Planted/Cultivated", "Wetlands")
+classdf <- data.frame(classvalue1 = c(1,2,3,4,5,7,8,9), classnames1 = nlcdclass)
+
+# Hex codes of colors for plotting
+classcolor <- c("#5475A8", "#B50000", "#D2CDC0", "#38814E", "#AF963C", "#D1D182", "#FBF65D", "#C8E6F8")
+
+# Now we ratify (RAT = "Raster Attribute Table") the ncld2011 (define RasterLayer as a categorical variable). This is helpful for plotting.
+nlcd2011 <- nlcd[[2]] #2011 data
+nlcd2011 <- ratify(nlcd2011) 
+rat <- levels(nlcd2011)[[1]]
+rat$landcover <- nlcdclass
+levels(nlcd2011) <- rat
+
+
+```
+
+generate sampled sites
+```{r}
+# 2011 nlcd sample 200 samples
+samp2011 <- sampleStratified(nlcd2011, size = 200, na.rm = TRUE, sp = TRUE)
+
+# plot sample sites over raster to visualize
+plt <- levelplot(nlcd2011, col.regions = classcolor, 
+                 main = 'Distribution of Training Sites')
+print(plt + layer(sp.points(samp2011, pch = 3, cex = 0.5, col = 1)))
+
+```
+
+extract values from landsat5 for training sites. these band values will be predictor variables and "classvalues" from nlcd2011 will be response variable
+```{r}
+
+# using uncropped landsat5 data
+
+# Extract the layer values for the locations
+sampvals <- extract(landsat5, samp2011, df = TRUE)
+
+# sampvals no longer has the spatial information. To keep the spatial information you use `sp=TRUE` argument in the `extract` function.
+
+# drop the ID column
+sampvals <- sampvals[, -1]
+
+# combine the class information with extracted values for each sample point
+sampdata <- data.frame(classvalue = samp2011@data$nlcd2011, sampvals)
+
+head(sampdata)
+```
+
+train the classifier using the sample LULC classes from NLCD
+```{r}
+
+# Train the model using rpart() where the LULC class prediction is a function of each band
+cart <- rpart(as.factor(classvalue)~., data=sampdata, method = 'class', minsplit = 5)
+
+# Plot the trained classification tree
+plot(cart, uniform=TRUE, main="Classification Tree")
+text(cart, cex = 0.8)
+
+```
+
+classify the rest of the raster landsat5 pixels using the trained prediciton model
+```{r}
+#get predictions from the class tree
+pr2011 <- predict(landsat5, cart, type='class')
+
+# plot
+pr2011 <- ratify(pr2011)
+rat <- levels(pr2011)[[1]]
+rat$legend <- classdf$classnames
+levels(pr2011) <- rat
+levelplot(pr2011, maxpixels = 1e6,
+          col.regions = classcolor,
+          scales=list(draw=FALSE),
+          main = "Decision Tree classification of Landsat 5")
+
+```
+
+## Question 1
+
+__Plot ``nlcd2011`` and ``pr2011`` side-by-side and comment about the accuracy of the prediction (e.g. mixing between cultivated crops, pasture, grassland and shrubs).__
+
+```{r}
+
+# I set the colorkey to false so the plots actually show at a legible size
+p1 <- levelplot(nlcd2011, maxpixels = 1e6,
+          col.regions = classcolor,
+          scales=list(draw=FALSE),
+          main = "NLCD2011", colorkey = FALSE)
+
+
+p2 <- levelplot(pr2011, maxpixels = 1e6,
+          col.regions = classcolor,
+          scales=list(draw=FALSE),
+          main = "PR2011", colorkey = FALSE)
+
+grid.arrange(p1, p2, ncol = 2)
+```
+
+> The predictions here are okay, but aren't totally accurate for any land use / land cover types. For example, waters and wetlands as a whole are pretty accurate, but between water and wetland, there is some discrepancy probably due to the similar spectral signatures. Similarly, the vast amount of cultivated land has predictions in the developed, herbaceaous and wetlands. This is again probably due to spectral signature similarity. The urban areas are mixed up probably due to spectral signatures along with multiple categorical density. 
+
+****
+
+Model evaluation using k-fold cross validation
+Evaluation is done using the original sample points
+```{r}
+
+# get 5 k-folds for cross validation
+j <- kfold(sampdata, k = 5, by=sampdata$classvalue)
+
+# create a list for the loop
+x <- list()
+
+# do the class tree 5 times with the test and train data for each fold
+for (k in 1:5) {
+    train <- sampdata[j!= k, ]
+    test <- sampdata[j == k, ]
+    cart <- rpart(as.factor(classvalue)~., data=train, method = 'class', minsplit = 5)
+    pclass <- predict(cart, test, type='class')
+    # create a data.frame using the reference and prediction
+    x[[k]] <- cbind(test$classvalue, as.integer(pclass))
+}
+
+```
+
+combine results of kfold test and compute confusion matrix
+```{r}
+
+# create df of kfold results, showing obs/pred values for all points 5x
+y <- do.call(rbind, x)
+y <- data.frame(y)
+colnames(y) <- c('observed', 'predicted')
+
+# table the df to make confusion matrix
+conmat <- table(y)
+
+# change the name of the classes
+colnames(conmat) <- classdf$classnames
+rownames(conmat) <- classdf$classnames
+
+conmat
+
+```
+
+##Question 2
+
+__Comment on the miss-classification between different classes.__
+
+> First, let's see which categories were easy and hard to classify.
+
+```{r}
+#get the actual vs total predictions
+as.data.frame(diag(conmat) / rowSums(conmat))
+```
+
+> From the accuracy results we can see that water is pretty easily identified, while the remaining categories have a best prediction rate of only 51.5%. It would seem wetland and cultivated are the harded to identify, both with 33.5% accuracy. Wetlands is misclassed as shrubland, cultivated and forest most often, while cultivated is misclassed as shrubland and herbaceous most often.
+
+## Question 3
+
+__Can you think of ways to to improve the accuracy.__
+ 
+> Perhaps using a vegetatation index when making the training / test predictions would improve accuracy.
+
+## Question 4
+
+__Perform the classification using Random Forest classifiers from the ``randomForest`` package__
+
+```{r}
+#this is basically a repeat of the rpart but with randomForest
+# use randomforest for a fit model
+rf <- randomForest(as.factor(classvalue)~., data=sampdata, method = 'class', minsplit = 5)
+
+# get rf predictions with the new model
+pr2011.rf <- predict(landsat5, rf, type='class')
+
+# awww rats
+pr2011.rf <- ratify(pr2011.rf)
+rat <- levels(pr2011.rf)[[1]]
+rat$legend <- classdf$classnames
+levels(pr2011.rf) <- rat
+
+# plot
+levelplot(pr2011.rf, maxpixels = 1e6,
+          col.regions = classcolor,
+          scales=list(draw=FALSE),
+          main = "Random Forest")
+
+#again make the plot with colorkey=false so they fit side by side
+rfp <- levelplot(pr2011.rf, maxpixels = 1e6,
+          col.regions = classcolor,
+          scales=list(draw=FALSE),
+          main = "Random Forest",
+          colorkey = FALSE)
+```
+
+
+## Question 5
+
+__Plot the results of rpart and Random Forest classifier side-by-side.__
+
+```{r}
+#p2 is the rpart and rfp is the random forest
+grid.arrange(p2, rfp, ncol = 2)
+```
+
+## Question 6 
+
+__(optional):Repeat the steps for the year 2001 using Random Forest. Use cloud-free composite image from Landsat 7 with 6-bands. Use as reference data the National Land Cover Database 2001 (NLCD 2001) for the subset of the California Central Valley.
+
+
+```{r}
+#load the 2001 landsat data
+landsat7 <- stack(file.path(myPath, 'rs/centralvalley-2001LE7.tif'))
+
+#name the bands
+names(landsat7) <- c('blue', 'green', 'red', 'NIR', 'SWIR1', 'SWIR2')
+```
+
+```{r}
+#get the 2001 nlcd data from the data we loaded earlier
+nlcd2001 <- nlcd[[1]]
+
+#ratify it
+nlcd2001 <- ratify(nlcd2001)
+rat <- levels(nlcd2001)[[1]]
+rat$landcover <- nlcdclass
+levels(nlcd2001) <- rat
+
+```
+
+
+```{r}
+#get sample data from 2001 nlcd data
+samp2001 <- sampleStratified(nlcd2001, size = 200, na.rm = TRUE, sp = TRUE)
+
+# using uncropped landsat7 data
+
+# Extract the layer values for the locations
+sampvals <- extract(landsat7, samp2001, df = TRUE)
+
+# drop the ID column
+sampvals <- sampvals[, -1]
+
+# combine the class information with extracted values for each sample point
+sampdata <- data.frame(classvalue = samp2001@data$nlcd2001, sampvals)
+
+head(sampdata)
+```
+
+```{r}
+#random forest fit
+rf <- randomForest(as.factor(classvalue)~., data=sampdata, method = 'class', minsplit = 5)
+
+# use rf model to predict values
+pr2001.rf <- predict(landsat7, rf, type='class')
+
+# ratify it
+pr2001.rf <- ratify(pr2001.rf)
+rat <- levels(pr2001.rf)[[1]]
+rat$legend <- classdf$classnames
+levels(pr2001.rf) <- rat
+
+levelplot(pr2001.rf, maxpixels = 1e6,
+          col.regions = classcolor,
+          scales=list(draw=FALSE),
+          main = "Random Forest 2001 Landsat 7")
+# plot
+rfp2 <- levelplot(pr2001.rf, maxpixels = 1e6,
+          col.regions = classcolor,
+          scales=list(draw=FALSE),
+          main = "Random Forest 2001", 
+          colorkey = FALSE)
+
+```
+
+Compare to the 2011
+```{r}
+grid.arrange(rfp, rfp2, ncol = 2)
+```
+
