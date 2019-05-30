@@ -1,0 +1,267 @@
+---
+title: "Week 9 Lab"
+author: "Tyler Jackson"
+date: "5/29/2019"
+output: html_document
+---
+
+# Setup
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(rspatial)
+library(maptools)
+library(raster)
+library(dismo)
+library(rpart)
+library(randomForest)
+library(RColorBrewer)
+```
+
+# Questions
+
+```{r}
+#get bigfoot data
+bf <- sp_data('bigfoot')
+
+#get climate data
+wc <- raster::getData('worldclim', res=10, var='bio')
+```
+
+Extract Climate Data from where Bigfoot is
+
+```{r}
+#get climate data for the west coast bigfoot
+bfc <- extract(wc, bf[,1:2])
+
+# Any missing values?
+i <- which(is.na(bfc[,1]))
+
+```
+
+Model Preparation
+
+```{r}
+#need the extent of our points
+e <- extent(SpatialPoints(bf[, 1:2]))
+
+# 5000 random samples (excluding NA cells) from extent e
+set.seed(0)
+bg <- sampleRandom(wc, 5000, ext=e)
+dim(bg)
+head(bg)
+```
+
+Combine the bg data and the actual
+```{r}
+#bind them together
+d <- rbind(cbind(pa=1, bfc), cbind(pa=0, bg))
+d <- data.frame(d)
+dim(d)
+```
+
+Fit a model
+```{r}
+#split into east and west
+de <- d[bf[,1] > -102, ]
+dw <- d[bf[,1] <= -102, ]
+```
+
+```{r}
+#create regression tree model
+cart <- rpart(pa~., data=dw)
+printcp(cart)
+```
+
+```{r}
+#look at it visually
+plot(cart, uniform=TRUE, main="Regression Tree")
+# text(cart, use.n=TRUE, all=TRUE, cex=.8)
+text(cart, cex=.8, digits=1)
+
+```
+
+```{r}
+# BIO1 = Annual Mean Temperature
+# BIO2 = Mean Diurnal Range (Mean of monthly (max temp - min temp))
+# BIO3 = Isothermality (BIO2/BIO7) (* 100)
+# BIO4 = Temperature Seasonality (standard deviation *100)
+# BIO5 = Max Temperature of Warmest Month
+# BIO6 = Min Temperature of Coldest Month
+# BIO7 = Temperature Annual Range (BIO5-BIO6)
+# BIO8 = Mean Temperature of Wettest Quarter
+# BIO9 = Mean Temperature of Driest Quarter
+# BIO10 = Mean Temperature of Warmest Quarter
+# BIO11 = Mean Temperature of Coldest Quarter
+# BIO12 = Annual Precipitation
+# BIO13 = Precipitation of Wettest Month
+# BIO14 = Precipitation of Driest Month
+# BIO15 = Precipitation Seasonality (Coefficient of Variation)
+# BIO16 = Precipitation of Wettest Quarter
+# BIO17 = Precipitation of Driest Quarter
+# BIO18 = Precipitation of Warmest Quarter
+# BIO19 = Precipitation of Coldest Quarter
+```
+
+## Question 1: Describe the conditions under which you have the highest probability of finding our beloved species?
+
+> Let's walk the path. It's worth noting here that despite running the same code and using the same data, I'm getting different results in my regression tree. I'm using my results to explain the probability. Condition 1: Temperature seasonality greater or equal to 8678. Condition 2: mean temperature of warmest quarter greater or equal to 230.5. Condition 3: percipitation of the warmest quarter greater than or equal to 275. Condition 4: percipitation of the coldest quarter less than 276 gives a probability of 0.9.Essentially, bigfoot likes areas with distinct seasons, warm and rainy summers, and dry winters. 
+
+*******************************************************************************
+
+```{r}
+# create a factor to indicated that we want classification
+fpa <- as.factor(dw[, 'pa'])
+```
+
+Fit Classification Random Forest Model
+```{r}
+#create classification fit model
+crf <- randomForest(dw[, 2:ncol(dw)], fpa)
+```
+
+Now we use regression, rather than classification.
+First we tune a parameter.
+```{r, sup14a}
+#get the tune parameter, this returns 3 options
+trf <- tuneRF(dw[, 2:ncol(dw)], dw[, 'pa'])
+
+#choose the lowest option (lowest out of bag error)
+mt <- trf[which.min(trf[,2]), 1]
+```
+
+## Question 2: What did tuneRF help us find? What does the values of mt represent?
+
+> tuneRF finds the number of variables that will produces the smallest Out-of-bag error, which can then be used in the random forest model as the mtry argument, which represents the number of variables to be randomly sampled at each split.
+
+*******************************************************************************
+
+```{r}
+#rerun the random forest with our tuned parameter
+#this is a regression rf
+rrf <- randomForest(dw[, 2:ncol(d)], dw[, 'pa'], mtry=mt)
+```
+
+```{r}
+# Extent of the western points
+ew <- extent(SpatialPoints(bf[bf[,1] <= -102, 1:2]))
+```
+
+```{r}
+#get predictions
+rp <- predict(wc, rrf, ext=ew)
+
+```
+
+```{r}
+#evaluate the model
+eva <- evaluate(dw[dw$pa==1, ], dw[dw$pa==0, ], rrf)
+```
+
+```{r}
+#check it out
+plot(eva, 'ROC')
+```
+
+Find a good threshold to determine presence/absence and plot the prediction
+```{r}
+tr <- threshold(eva)
+
+
+plot(rp > tr[1, 'spec_sens'])
+```
+
+Also use the classification model for prediction
+```{r}
+rc <- predict(wc, crf, ext=ew)
+```
+
+And class probabilities
+
+```{r}
+rc2 <- predict(wc, crf, ext=ew, type='prob', index=2)
+
+```
+
+Extrapolation
+```{r}
+de <- na.omit(de)
+eva2 <- evaluate(de[de$pa==1, ], de[de$pa==0, ], rrf)
+
+plot(eva2, 'ROC')
+
+```
+
+Map it
+```{r}
+eus <- extent(SpatialPoints(bf[, 1:2]))
+rcusa <- predict(wc, rrf, ext=eus)
+plot(rcusa)
+points(bf[,1:2], cex=.25)
+```
+
+## Question 3: Why would it be that the model does not extrapolate well?
+
+
+```{r}
+usclim <- crop(wc, eus)
+```
+
+```{r}
+#4, 10, 18, 19, 12, 3
+
+par(mfrow=c(2, 3))
+plot(usclim$bio3, main = "Bio 3")
+plot(usclim$bio4, main = "Bio 4")
+plot(usclim$bio10, main = "Bio 10")
+plot(usclim$bio12, main = "Bio 12")
+plot(usclim$bio18, main = "Bio 18")
+plot(usclim$bio19, main = "Bio 19")
+par(mfrow=c(1, 1))
+```
+
+> Looking at the plots of the climate data that the regression tree identified as important, while not neccesarily related to the random forest, we can see that some variables have quite different climate geography, especially bio 12, 18, and 19. Additionally, we are using "background data" instead of negative presence, which is skewing our results to favor western climate geographies.
+
+*******************************************************************************
+Viva Mexico
+```{r}
+mex <- getData('GADM', country='MEX', level=1)
+pm <- predict(wc, rrf, ext=mex)
+pm <- mask(pm, mex)
+plot(pm)
+```
+
+## Question 4: Where in Mexico are you most likely to encounter western bigfoot?
+
+> The northern part of the Baja Pennisula, as well as hot spots near Mexico City and Monteray. There seems to be a pattern from the north to the south in the high desert / mountain regions in central Mexico. 
+
+*******************************************************************************
+
+```{r}
+fut <- getData('CMIP5', res=10, var='bio', rcp=85, model='AC', year=70)
+names(fut)
+names(wc)
+names(fut) <- names(wc)
+futusa <- predict(fut, rrf, ext=eus, progress='window')
+plot(futusa, col = my.pal)
+```
+
+
+## Question 5: Make a map to show where conditions are improving for western bigfoot, and where they are not. Is the species headed toward extinction?
+
+```{r}
+#make prediction based on the Western Bigfoot Extent
+futew <- predict(fut, rrf, ext=ew, progress='window')
+
+#calculate the change 
+changes <- futew - rc
+
+#color brewer for divergent color scheme
+my.pal <- brewer.pal(n = 11, name = "RdGy")
+
+#check it out
+plot(changes, col = my.pal, main = "Bigfoot Climate Change Impacts")
+```
+
+> Looking at the map, much of there area is little to no impact, but there are many areas with intense negative impacts. Given that the species is arguably non-existent, it's hard for me to say it is moving toward extinction. However, I hope that junk science is on its way toward extinction.
+
